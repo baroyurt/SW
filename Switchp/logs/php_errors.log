@@ -1,0 +1,11 @@
+[28-Feb-2026 17:22:43 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
+[28-Feb-2026 17:22:48 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
+[28-Feb-2026 17:22:53 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
+[28-Feb-2026 17:22:58 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
+[28-Feb-2026 17:23:03 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
+[28-Feb-2026 17:23:08 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
+[28-Feb-2026 17:23:13 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
+[28-Feb-2026 17:23:17 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
+[28-Feb-2026 17:23:18 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
+[28-Feb-2026 17:23:20 Europe/Berlin] Recent data error: Table 'switchdb.snmp_ports' doesn't exist
+[28-Feb-2026 17:24:17 Europe/Berlin] checkNewAlarms error: Unknown column 'd.ip' in 'field list'
