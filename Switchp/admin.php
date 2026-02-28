@@ -1072,21 +1072,23 @@ header("Expires: 0");
                 e.preventDefault();
                 const swId = document.getElementById('adm-port-sw-id').value;
                 const portNum = document.getElementById('adm-port-num').value;
-                const fd = new FormData();
-                fd.append('switch_id', swId); fd.append('port', portNum);
-                fd.append('type', document.getElementById('adm-port-type').value);
-                fd.append('device', document.getElementById('adm-port-device').value);
-                fd.append('ip', document.getElementById('adm-port-ip').value);
-                fd.append('mac', document.getElementById('adm-port-mac').value);
-                fd.append('connection_info_preserved', document.getElementById('adm-port-conn-info').value);
+                const payload = {
+                    switchId: swId,
+                    port: portNum,
+                    type: document.getElementById('adm-port-type').value,
+                    device: document.getElementById('adm-port-device').value,
+                    ip: document.getElementById('adm-port-ip').value,
+                    mac: document.getElementById('adm-port-mac').value,
+                    connectionInfo: document.getElementById('adm-port-conn-info').value
+                };
                 try {
-                    const r = await fetch('updatePort.php', {method:'POST', body:fd});
+                    const r = await fetch('updatePort.php', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
                     const d = await r.json();
-                    if (d.success) {
+                    if (d.status === 'ok') {
                         showToast('Port güncellendi','success');
                         document.getElementById('adm-port-modal').classList.remove('active');
                         loadAdminPorts();
-                    } else showToast(d.error||'Kaydedilemedi','error');
+                    } else showToast(d.message||'Kaydedilemedi','error');
                 } catch(e) { showToast('Hata: '+e.message,'error'); }
             });
         });
@@ -1434,16 +1436,15 @@ header("Expires: 0");
             const swId = document.getElementById('adm-port-sw-id').value;
             const portNum = document.getElementById('adm-port-num').value;
             if (!confirm(`Port ${portNum} boşa çekilecek, emin misiniz?`)) return;
-            const fd = new FormData();
-            fd.append('switch_id', swId); fd.append('port', portNum); fd.append('action', 'clear');
+            const payload = {switchId: swId, port: portNum, type: 'BOŞ', device: '', ip: '', mac: ''};
             try {
-                const r = await fetch('updatePort.php', {method:'POST', body:fd});
+                const r = await fetch('updatePort.php', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
                 const d = await r.json();
-                if (d.success) {
+                if (d.status === 'ok') {
                     showToast('Port boşa çekildi','success');
                     document.getElementById('adm-port-modal').classList.remove('active');
                     loadAdminPorts();
-                } else showToast(d.error||'İşlem başarısız','error');
+                } else showToast(d.message||'İşlem başarısız','error');
             } catch(e) { showToast('Hata: '+e.message,'error'); }
         }
 
@@ -1465,11 +1466,10 @@ header("Expires: 0");
             const sw = (adminData.switches||[]).find(s => s.id == swId);
             if (!confirm(`${sw?sw.name:'Switch'} üzerindeki tüm portlar boşa çekilecek, emin misiniz?`)) return;
             try {
-                const fd = new FormData(); fd.append('switch_id', swId); fd.append('action','reset_all');
-                const r = await fetch('updatePort.php', {method:'POST', body:fd});
+                const r = await fetch('updatePort.php', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({switchId: swId, action:'reset_all'})});
                 const d = await r.json();
-                if (d.success) { showToast('Tüm portlar boşa çekildi','success'); loadAdminPorts(); }
-                else showToast(d.error||'İşlem başarısız','error');
+                if (d.status === 'ok') { showToast('Tüm portlar boşa çekildi','success'); loadAdminPorts(); }
+                else showToast(d.message||'İşlem başarısız','error');
             } catch(e) { showToast('Hata: '+e.message,'error'); }
         }
 
