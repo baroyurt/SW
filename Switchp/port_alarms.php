@@ -638,11 +638,80 @@ $alarmsData = getActiveAlarmsData($conn);
         </div>
     </div>
     
+    <!-- MAC Taşıma Modal -->
+    <div class="modal-overlay" id="macMoveModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-exchange-alt"></i> MAC Adresi Taşındı</h3>
+            </div>
+            <div style="background: rgba(59,130,246,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <p style="color: var(--text);">Bu MAC adresi daha önce tespit edildi.</p>
+                <p style="margin-top: 8px;"><strong>MAC:</strong> <span id="mmMac" style="font-family: monospace; color: var(--warning);"></span></p>
+                <p style="margin-top: 8px;"><strong>Önceki Port:</strong> <span id="mmOldPort" style="color: var(--warning); font-weight: bold;"></span></p>
+                <p style="margin-top: 4px;"><strong>Yeni Port:</strong> <span id="mmNewPort" style="color: var(--success); font-weight: bold;"></span></p>
+            </div>
+            <p style="color: var(--text-light); margin-bottom: 20px;">Bu MAC adresi yeni porta taşınsın mı?</p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeMacMoveModal()"><i class="fas fa-times"></i> HAYIR</button>
+                <button class="btn btn-primary" onclick="confirmMacMove()" style="background: var(--success);"><i class="fas fa-check"></i> EVET</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Device Registry Found Modal -->
+    <div class="modal-overlay" id="deviceRegistryModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-database"></i> Cihaz Kaydı Bulundu</h3>
+            </div>
+            <p style="color: var(--text-light); margin-bottom: 15px;">Bu MAC Device Import listesinde mevcut. Bilgiler aşağıdadır:</p>
+            <div id="deviceRegistryInfo" style="background: rgba(16,185,129,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px; line-height: 1.8;"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeDeviceRegistryModal()"><i class="fas fa-times"></i> İptal</button>
+                <button class="btn btn-primary" onclick="confirmDeviceRegistry()" style="background: var(--success);"><i class="fas fa-save"></i> Onayla ve Kaydet</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- New Device Registration Modal -->
+    <div class="modal-overlay" id="newDeviceModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-plus-circle"></i> Yeni Cihaz Kaydı</h3>
+            </div>
+            <p style="color: var(--warning); margin-bottom: 15px;"><i class="fas fa-exclamation-triangle"></i> Bu MAC adresi sistemde yeni. Cihaz kaydı yapılmadan alarm kapatılamaz.</p>
+            <p style="color: var(--text-light); margin-bottom: 15px;">MAC: <span id="ndMac" style="font-family: monospace; color: var(--warning);"></span></p>
+            <div class="form-group">
+                <label>Cihaz Adı <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="ndDeviceName" placeholder="Örn: PC-MUHASEBE-01">
+            </div>
+            <div class="form-group">
+                <label>IP Adresi</label>
+                <input type="text" id="ndIpAddress" placeholder="Örn: 192.168.1.100">
+            </div>
+            <div class="form-group">
+                <label>Lokasyon</label>
+                <input type="text" id="ndLocation" placeholder="Örn: 3. Kat - Muhasebe">
+            </div>
+            <div class="form-group">
+                <label>Açıklama</label>
+                <input type="text" id="ndDescription" placeholder="Cihaz hakkında not...">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeNewDeviceModal()"><i class="fas fa-times"></i> İptal</button>
+                <button class="btn btn-primary" onclick="confirmNewDevice()" style="background: var(--success);"><i class="fas fa-save"></i> Kaydet ve Alarmı Kapat</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
         // Alarm data loaded dynamically to avoid caching issues
         let alarmsData = [];
         let currentFilter = 'all';
         let selectedAlarmId = null;
+        
+        // MAC workflow state
+        let macWorkflowData = {};
         
         // Load alarms from API
         async function loadAlarms() {
@@ -758,6 +827,19 @@ $alarmsData = getActiveAlarmsData($conn);
                         ` : ''}
                         
                         <div class="alarm-actions">
+                            ${(alarm.alarm_type === 'mac_moved' || alarm.alarm_type === 'mac_added') && alarm.new_value ? `
+                                <button class="btn" style="background: #27ae60; color: white;"
+                                    data-alarm-id="${alarm.id}"
+                                    data-new-mac="${escapeHtml(alarm.new_value||'')}"
+                                    data-device-id="${parseInt(alarm.device_id)||0}"
+                                    data-port-number="${parseInt(alarm.port_number)||0}"
+                                    data-device-name="${escapeHtml(alarm.device_name||'')}"
+                                    data-device-ip="${escapeHtml(alarm.device_ip||'')}"
+                                    data-old-mac="${escapeHtml(alarm.old_value||'')}"
+                                    onclick="startMacWorkflowFromBtn(this)">
+                                    <i class="fas fa-exchange-alt"></i> MAC İşle
+                                </button>
+                            ` : ''}
                             <button class="btn btn-primary" onclick="openAckModal(${alarm.id})">
                                 <i class="fas fa-check"></i> Bilgi Dahilinde Kapat
                             </button>
@@ -996,6 +1078,145 @@ $alarmsData = getActiveAlarmsData($conn);
                 }
             });
         });
+        
+        // ─────────────────────────────────────────────────────────────────
+        //  MAC WORKFLOW
+        // ─────────────────────────────────────────────────────────────────
+
+        function startMacWorkflowFromBtn(btn) {
+            startMacWorkflow(
+                parseInt(btn.dataset.alarmId),
+                btn.dataset.newMac,
+                parseInt(btn.dataset.deviceId),
+                parseInt(btn.dataset.portNumber),
+                btn.dataset.deviceName,
+                btn.dataset.deviceIp,
+                btn.dataset.oldMac
+            );
+        }
+
+        async function startMacWorkflow(alarmId, newMac, deviceId, portNumber, deviceName, deviceIp, oldMac) {
+            macWorkflowData = { alarmId, newMac, deviceId, portNumber, deviceName, deviceIp, oldMac };
+            try {
+                const resp = await fetch(
+                    `port_change_api.php?action=check_mac_previous_port&device_id=${deviceId}&mac_address=${encodeURIComponent(newMac)}&port_number=${portNumber}`
+                );
+                const data = await resp.json();
+                if (data.success && data.found) {
+                    macWorkflowData.previousPort = data.previous_port;
+                    document.getElementById('mmMac').textContent     = newMac;
+                    document.getElementById('mmOldPort').textContent = data.previous_port;
+                    document.getElementById('mmNewPort').textContent = portNumber;
+                    document.getElementById('macMoveModal').classList.add('active');
+                } else {
+                    await checkMacInRegistry(newMac);
+                }
+            } catch (err) {
+                alert('Hata: ' + err.message);
+            }
+        }
+
+        async function checkMacInRegistry(mac) {
+            try {
+                const resp = await fetch(
+                    `port_change_api.php?action=check_device_in_registry&mac_address=${encodeURIComponent(mac)}`
+                );
+                const data = await resp.json();
+                if (data.success && data.found) {
+                    const d = data.device;
+                    let html = '';
+                    if (d.device_name) html += `<div><strong>Cihaz Adı:</strong> ${escapeHtml(d.device_name)}</div>`;
+                    if (d.ip_address)  html += `<div><strong>IP:</strong> ${escapeHtml(d.ip_address)}</div>`;
+                    if (d.location)    html += `<div><strong>Lokasyon:</strong> ${escapeHtml(d.location)}</div>`;
+                    if (d.notes)       html += `<div><strong>Açıklama:</strong> ${escapeHtml(d.notes)}</div>`;
+                    if (d.department)  html += `<div><strong>Departman:</strong> ${escapeHtml(d.department)}</div>`;
+                    document.getElementById('deviceRegistryInfo').innerHTML = html || '<div>Kayıt bulundu.</div>';
+                    macWorkflowData.registryDevice = d;
+                    document.getElementById('deviceRegistryModal').classList.add('active');
+                } else {
+                    document.getElementById('ndMac').textContent = mac;
+                    document.getElementById('ndDeviceName').value  = '';
+                    document.getElementById('ndIpAddress').value   = '';
+                    document.getElementById('ndLocation').value    = '';
+                    document.getElementById('ndDescription').value = '';
+                    document.getElementById('newDeviceModal').classList.add('active');
+                }
+            } catch (err) {
+                alert('Hata: ' + err.message);
+            }
+        }
+
+        function closeMacMoveModal() {
+            document.getElementById('macMoveModal').classList.remove('active');
+        }
+
+        async function confirmMacMove() {
+            const { alarmId, newMac, deviceId, portNumber, previousPort } = macWorkflowData;
+            closeMacMoveModal();
+            try {
+                const resp = await fetch('port_change_api.php?action=move_mac_to_port', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ alarm_id: alarmId, mac_address: newMac, device_id: deviceId, old_port: previousPort, new_port: portNumber })
+                });
+                const data = await resp.json();
+                if (data.success) { alert('✅ ' + (data.message || 'MAC porta taşındı ve alarm kapatıldı.')); loadAlarms(); }
+                else              { alert('❌ Hata: ' + (data.error || 'İşlem başarısız')); }
+            } catch (err) { alert('❌ Hata: ' + err.message); }
+        }
+
+        function closeDeviceRegistryModal() {
+            document.getElementById('deviceRegistryModal').classList.remove('active');
+        }
+
+        async function confirmDeviceRegistry() {
+            const { alarmId, newMac, deviceId, portNumber, registryDevice } = macWorkflowData;
+            closeDeviceRegistryModal();
+            try {
+                const resp = await fetch('port_change_api.php?action=register_device_for_alarm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        alarm_id: alarmId, mac_address: newMac, device_id: deviceId, port_number: portNumber,
+                        device_name: registryDevice ? registryDevice.device_name : '',
+                        ip_address:  registryDevice ? registryDevice.ip_address  : '',
+                        location:    registryDevice ? registryDevice.location    : '',
+                        description: registryDevice ? registryDevice.notes       : ''
+                    })
+                });
+                const data = await resp.json();
+                if (data.success) { alert('✅ ' + (data.message || 'Cihaz kaydedildi ve alarm kapatıldı.')); loadAlarms(); }
+                else              { alert('❌ Hata: ' + (data.error || 'İşlem başarısız')); }
+            } catch (err) { alert('❌ Hata: ' + err.message); }
+        }
+
+        function closeNewDeviceModal() {
+            document.getElementById('newDeviceModal').classList.remove('active');
+        }
+
+        async function confirmNewDevice() {
+            const { alarmId, newMac, deviceId, portNumber } = macWorkflowData;
+            const deviceName = document.getElementById('ndDeviceName').value.trim();
+            if (!deviceName) { alert('Cihaz Adı zorunludur!'); return; }
+            closeNewDeviceModal();
+            try {
+                const resp = await fetch('port_change_api.php?action=register_device_for_alarm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        alarm_id: alarmId, mac_address: newMac, device_id: deviceId, port_number: portNumber,
+                        device_name: deviceName,
+                        ip_address:  document.getElementById('ndIpAddress').value.trim(),
+                        location:    document.getElementById('ndLocation').value.trim(),
+                        description: document.getElementById('ndDescription').value.trim()
+                    })
+                });
+                const data = await resp.json();
+                if (data.success) { alert('✅ ' + (data.message || 'Cihaz kaydedildi ve alarm kapatıldı.')); loadAlarms(); }
+                else              { alert('❌ Hata: ' + (data.error || 'İşlem başarısız')); }
+            } catch (err) { alert('❌ Hata: ' + err.message); }
+        }
+        // ─────────────────────────────────────────────────────────────────
     </script>
 </body>
 </html>

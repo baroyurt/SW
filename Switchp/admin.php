@@ -526,6 +526,10 @@ header("Expires: 0");
                 <i class="fas fa-plug"></i>
                 <span>Port Yönetimi</span>
             </button>
+            <button class="nav-item" data-page="mac-history">
+                <i class="fas fa-history"></i>
+                <span>MAC Değişim Geçmişi</span>
+            </button>
         </div>
         
         <div class="nav-section">
@@ -810,6 +814,24 @@ header("Expires: 0");
                 </iframe>
             </div>
         </div>
+        
+        <!-- MAC Değişim Geçmişi Section -->
+        <div class="content-section" id="section-mac-history">
+            <div class="card" style="padding: 0; overflow: hidden;">
+                <div style="padding: 20px; border-bottom: 1px solid var(--border);">
+                    <h3><i class="fas fa-history"></i> MAC Değişim Geçmişi</h3>
+                    <p style="color: var(--text-light); margin-top: 10px; margin-bottom: 0;">
+                        Port bazlı MAC adres değişimlerini ve taşıma geçmişini görüntüleyin.
+                    </p>
+                </div>
+                <iframe 
+                    src="admin_mac_history.php" 
+                    style="width: 100%; height: calc(100vh - 200px); border: none; display: block;"
+                    frameborder="0"
+                    id="mac-history-iframe">
+                </iframe>
+            </div>
+        </div>
     </div>
     
     <script>
@@ -838,7 +860,8 @@ header("Expires: 0");
                 'export': 'Excel Export',
                 'history': 'Geçmiş Yedekler',
                 'snmp': 'SNMP Senkronizasyon',
-                'snmp-config': 'SNMP Konfigürasyon'
+                'snmp-config': 'SNMP Konfigürasyon',
+                'mac-history': 'MAC Değişim Geçmişi'
             };
             document.getElementById('page-title-text').textContent = titles[pageName] || 'Admin Panel';
         }
