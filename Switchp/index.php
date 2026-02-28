@@ -2186,7 +2186,10 @@ header("Expires: 0");
                         <input type="text" id="port-no-display" class="form-control" readonly>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Bağlantı Türü</label>
+                        <label class="form-label" style="display:flex;align-items:center;gap:8px;">
+                            Bağlantı Türü
+                            <span id="modal-vlan-badge" style="display:none;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:#0d6efd;color:#fff;letter-spacing:.5px;"></span>
+                        </label>
                         <select id="port-type" class="form-control">
                             <option value="BOŞ">BOŞ</option>
                             <option value="DEVICE">DEVICE</option>
@@ -2204,21 +2207,20 @@ header("Expires: 0");
                 </div>
                 
                 <div class="form-group">
-                    <label class="form-label" style="display:flex;align-items:center;gap:8px;">
+                    <label class="form-label">
                         Cihaz Adı/Açıklama
-                        <span id="modal-vlan-badge" style="display:none;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:#0d6efd;color:#fff;letter-spacing:.5px;"></span>
                     </label>
-                    <input type="text" id="port-device" class="form-control" placeholder="Ör: PK10, Lobby ONU">
+                    <input type="text" id="port-device" class="form-control" placeholder="Ör: OTOMASYON">
                 </div>
                 
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">IP Adresi</label>
-                        <input type="text" id="port-ip" class="form-control" placeholder="Ör: 172.18.50.9">
+                        <input type="text" id="port-ip" class="form-control" placeholder="Ör: 172.18.120.37">
                     </div>
                     <div class="form-group">
                         <label class="form-label">MAC Adresi</label>
-                        <input type="text" id="port-mac" class="form-control" placeholder="Ör: f8:a2:6d:f0:82:a8">
+                        <input type="text" id="port-mac" class="form-control" placeholder="Ör: 00:18:bb:02:8a:47">
                     </div>
                 </div>
                 
@@ -2231,7 +2233,7 @@ header("Expires: 0");
                         </small>
                     </label>
                     <textarea id="port-connection-info" class="form-control" rows="3" 
-                              placeholder="Ruby 3232, ONU, vb. gibi ek bağlantı bilgileri"></textarea>
+                              placeholder="Ek bağlantı bilgileri, oda/cihaz notları vb."></textarea>
                     <small style="color: var(--text-light); display: block; margin-top: 5px;">
                         <i class="fas fa-info-circle"></i> Bu alan panel bilgisi girilse bile korunur
                     </small>
@@ -4175,7 +4177,7 @@ function confirmDeleteRack(rackId) {
             
             // Mevcut bağlantı bilgilerini yükle
             if (existingConnection) {
-                modal.querySelector('.modal-title').textContent = 'Port Bağlantısını Düzenle';
+                modal.querySelector('.modal-title').textContent = 'Port ' + portNumber + ' Düzenle';
                 
                 // VLAN bilgisi SNMP'den varsa, VLAN seçeneğini otomatik seç
                 // Debug logging - Tarayıcı console'da (F12) görmek için
@@ -4244,7 +4246,7 @@ function confirmDeleteRack(rackId) {
                     }, 100);
                 }
             } else {
-                modal.querySelector('.modal-title').textContent = 'Port Bağlantısı Ekle';
+                modal.querySelector('.modal-title').textContent = 'Port ' + portNumber + ' Ekle';
                 document.getElementById('port-type').value = isFiberPort ? 'FIBER' : 'ETHERNET';
                 const vlanBadgeNew = document.getElementById('modal-vlan-badge');
                 if (vlanBadgeNew) vlanBadgeNew.style.display = 'none';

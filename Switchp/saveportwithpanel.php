@@ -118,7 +118,7 @@ try {
                 WHERE switch_id = ? AND port_no = ?
             ");
             
-            $updatePortStmt->bind_param("ssssiiisii", 
+            $updatePortStmt->bind_param("ssssiissii", 
                 $type, $device, $ip, $mac,
                 $panelId, $panelPort, $connectedTo, $connectionInfo,
                 $switchId, $portNo
@@ -135,7 +135,7 @@ try {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
-            $insertPortStmt->bind_param("iissssiiis", 
+            $insertPortStmt->bind_param("iissssiiss", 
                 $switchId, $portNo, $type, $device, $ip, $mac,
                 $panelId, $panelPort, $connectedTo, $connectionInfo
             );
