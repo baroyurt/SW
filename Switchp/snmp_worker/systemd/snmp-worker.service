@@ -1,0 +1,33 @@
+[Unit]
+Description=SNMP Worker - Network Monitoring System
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=snmpworker
+Group=snmpworker
+WorkingDirectory=/opt/snmp_worker
+Environment="PYTHONUNBUFFERED=1"
+
+# Path to Python executable and worker script
+ExecStart=/usr/bin/python3 /opt/snmp_worker/snmp_worker/worker.py -c /opt/snmp_worker/snmp_worker/config/config.yml
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/snmp_worker/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=snmp-worker
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+# SNMP Worker Requirements
+# Core dependencies
+pysnmp-lextudio>=5.0.0,<6.0.0  # Maintained fork of pysnmp with Python 3.12+ support (v5.x for API compatibility)
+pyasn1>=0.6.0  # Explicitly require pyasn1 >= 0.6.0 for compat.octets module
+pyasyncore>=1.0.0  # Required by pysnmp on Python 3.12+
+pyyaml>=6.0
+mysql-connector-python>=8.0.0
+pymysql>=1.0.0
+sqlalchemy>=2.0.0
+
+# Database drivers (optional - install based on your database)
+# For PostgreSQL support (optional):
+psycopg2-binary>=2.9.0
+
+# Optional notification services
+python-telegram-bot>=20.0
+aiosmtplib>=2.0.0        # For email notifications
+requests>=2.28.0
+
+# Utilities
+python-dotenv>=0.19.0
+colorama>=0.4.6
+python-json-logger>=2.0.0
+pytz>=2023.3  # Timezone support for datetime operations

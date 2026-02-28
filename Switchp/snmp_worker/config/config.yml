@@ -1,0 +1,151 @@
+# SNMP Worker Configuration
+
+# Database Configuration
+database:
+  host: 127.0.0.1
+  port: 3306
+  name: switchdb
+  user: root
+  password: ""
+  pool_size: 10
+  max_overflow: 20
+
+# Global SNMP Configuration
+snmp:
+  version: "3"
+  username: "snmpuser"
+  auth_protocol: "SHA"
+  auth_password: "AuthPass123"
+  priv_protocol: "AES"
+  priv_password: "PrivPass123"
+  timeout: 2
+  retries: 1
+  max_bulk_size: 50
+
+# Polling Configuration
+polling:
+  interval: 30
+  parallel_devices: 5
+  max_workers: 10
+
+# Switches Configuration
+switches:
+  - name: "SW35-BALO"
+    host: "172.18.1.214"
+    vendor: "cisco"
+    model: "CBS350"
+    enabled: true
+    description: "Test Switch SW35 - BALO Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123"
+
+
+# Alarm Configuration
+alarms:
+  enabled: true
+  debounce_time: 60
+  trigger_on:
+    - port_down
+    - device_unreachable
+    - snmp_error
+    - mac_moved
+    - vlan_changed
+    - description_changed
+  # Severity levels and notification routing
+  severity_routing:
+    CRITICAL:
+      telegram: true
+      email: true
+      events:
+        - device_unreachable
+        - multiple_ports_down
+    HIGH:
+      telegram: true
+      email: true
+      events:
+        - mac_moved
+        - port_down
+    MEDIUM:
+      telegram: false
+      email: true
+      events:
+        - vlan_changed
+        - port_up
+    LOW:
+      telegram: false
+      email: false
+      events:
+        - description_changed
+
+# Telegram Notifications
+telegram:
+  enabled: true
+  bot_token: "8395836575:AAH50nUhxGD2UlDevyq_-IkgvJ-aoNy8P4E"
+  chat_id: "-8395836575"
+  notify_on:
+    - port_down
+    - port_up
+    - device_unreachable
+    - mac_moved
+    - vlan_changed
+  # Severity routing (which severities trigger Telegram)
+  severity_filter:
+    - CRITICAL
+    - HIGH
+
+# Email Notifications
+email:
+  enabled: false
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  smtp_user: "your_email@gmail.com"
+  smtp_password: "your_app_password"
+  from_address: "noreply@yourcompany.com"
+  to_addresses:
+    - "admin@yourcompany.com"
+    - "network@yourcompany.com"
+  notify_on:
+    - port_down
+    - device_unreachable
+
+# Domain Server Integration (MAC → IP → Device Name Resolution)
+domain_server:
+  enabled: false  # Set to true to enable automatic domain queries
+  
+  # Active Directory / LDAP Configuration
+  ldap_host: "dc.company.local"  # Domain controller hostname or IP
+  ldap_port: 389  # 389 for LDAP, 636 for LDAPS
+  ldap_user: "DOMAIN\\administrator"  # Domain user with read permissions
+  ldap_password: "YourPassword123"  # User password
+  ldap_base_dn: ""  # Auto-detected if empty, e.g., "DC=company,DC=local"
+  
+  # DHCP Server Configuration
+  dhcp_host: "dhcp.company.local"  # DHCP server hostname or IP
+  
+  # DNS/NetBIOS Resolution
+  use_dns: true  # Enable DNS lookups
+  use_netbios: true  # Enable NetBIOS name resolution
+  
+  # Cache Configuration
+  cache_duration_days: 30  # How long to cache domain lookup results
+  
+  # Fallback to Excel/Manual Registry
+  fallback_to_registry: true  # If domain lookup fails, use mac_device_registry table
+
+# System Configuration
+system:
+  timezone: "Europe/Athens"  # UTC+2 (Athens timezone)
+
+# Logging Configuration
+logging:
+  level: "DEBUG"  # ★★★ DEBUG olarak değiştirildi ★★★
+  format: "json"
+  file: "logs/snmp_worker.log"
+  max_bytes: 10485760
+  backup_count: 5
+  console: true
