@@ -96,7 +96,29 @@ try {
             $data = json_decode(file_get_contents("php://input"), true);
             createDescriptionChangeAlarm($conn, $data);
             break;
-            
+
+        case 'check_mac_previous_port':
+            $deviceId  = isset($_GET['device_id'])   ? intval($_GET['device_id'])   : 0;
+            $macAddress = isset($_GET['mac_address']) ? trim($_GET['mac_address'])  : '';
+            $newPort   = isset($_GET['port_number'])  ? intval($_GET['port_number']) : 0;
+            checkMacPreviousPort($conn, $deviceId, $macAddress, $newPort);
+            break;
+
+        case 'check_device_in_registry':
+            $macAddress = isset($_GET['mac_address']) ? trim($_GET['mac_address']) : '';
+            checkDeviceInRegistry($conn, $macAddress);
+            break;
+
+        case 'move_mac_to_port':
+            $data = json_decode(file_get_contents("php://input"), true) ?: [];
+            moveMacToPort($conn, $auth, $data);
+            break;
+
+        case 'register_device_for_alarm':
+            $data = json_decode(file_get_contents("php://input"), true) ?: [];
+            registerDeviceForAlarm($conn, $auth, $data);
+            break;
+
         default:
             throw new Exception('Invalid action');
     }
@@ -964,5 +986,302 @@ function createDescriptionChangeAlarm($conn, $data) {
     }
 }
 
+/**
+ * Check if a MAC address was previously seen on another port of the same switch
+ */
+function checkMacPreviousPort($conn, $deviceId, $macAddress, $newPort) {
+    if ($deviceId <= 0 || empty($macAddress)) {
+        echo json_encode(['success' => false, 'error' => 'Invalid parameters']);
+        return;
+    }
+    $macAddress = strtoupper($macAddress);
 
+    // Check ports table for another port with this MAC on the same switch
+    $stmt = $conn->prepare("
+        SELECT p.port_no, p.mac, s.name as switch_name, s.ip as switch_ip
+        FROM ports p
+        JOIN switches s ON p.switch_id = s.id
+        JOIN snmp_devices sd ON s.name = sd.name
+        WHERE sd.id = ? AND UPPER(p.mac) = ? AND p.port_no != ?
+        LIMIT 1
+    ");
+    $stmt->bind_param("isi", $deviceId, $macAddress, $newPort);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if ($row) {
+        echo json_encode([
+            'success' => true,
+            'found' => true,
+            'previous_port' => $row['port_no'],
+            'switch_name'   => $row['switch_name'],
+            'switch_ip'     => $row['switch_ip'],
+        ]);
+    } else {
+        echo json_encode(['success' => true, 'found' => false]);
+    }
+}
+
+/**
+ * Check if a MAC address exists in the device import registry
+ */
+function checkDeviceInRegistry($conn, $macAddress) {
+    if (empty($macAddress)) {
+        echo json_encode(['success' => false, 'error' => 'MAC address required']);
+        return;
+    }
+    $macAddress = strtoupper($macAddress);
+
+    $stmt = $conn->prepare("
+        SELECT mac_address, ip_address, device_name, user_name, location, department, notes
+        FROM mac_device_registry
+        WHERE UPPER(mac_address) = ?
+        LIMIT 1
+    ");
+    $stmt->bind_param("s", $macAddress);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if ($row) {
+        echo json_encode(['success' => true, 'found' => true, 'device' => $row]);
+    } else {
+        echo json_encode(['success' => true, 'found' => false]);
+    }
+}
+
+/**
+ * Move a MAC address from old port to new port, update DB and write JSON history
+ */
+function moveMacToPort($conn, $auth, $data) {
+    $alarmId  = isset($data['alarm_id'])   ? intval($data['alarm_id'])   : 0;
+    $oldPort  = isset($data['old_port'])   ? intval($data['old_port'])   : 0;
+    $newPort  = isset($data['new_port'])   ? intval($data['new_port'])   : 0;
+    $mac      = isset($data['mac_address']) ? strtoupper(trim($data['mac_address'])) : '';
+    $deviceId = isset($data['device_id'])  ? intval($data['device_id'])  : 0;
+
+    if ($alarmId <= 0 || $newPort <= 0 || empty($mac) || $deviceId <= 0) {
+        echo json_encode(['success' => false, 'error' => 'Invalid parameters']);
+        return;
+    }
+
+    $user = $auth->getUser();
+    $conn->begin_transaction();
+    try {
+        // Get device info
+        $stmt = $conn->prepare("SELECT name, ip_address FROM snmp_devices WHERE id = ?");
+        $stmt->bind_param("i", $deviceId);
+        $stmt->execute();
+        $device = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        // Get alarm old_value (expected MAC on old port)
+        $stmt = $conn->prepare("SELECT old_value, port_number FROM alarms WHERE id = ?");
+        $stmt->bind_param("i", $alarmId);
+        $stmt->execute();
+        $alarm = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $oldMac = $alarm ? strtoupper($alarm['old_value']) : '';
+        if ($oldPort <= 0 && $alarm) {
+            // old_port was not provided; derive from alarm port or db
+            $oldPort = intval($alarm['port_number']);
+        }
+
+        // Clear MAC from old port
+        if ($oldPort > 0) {
+            $stmt = $conn->prepare("
+                UPDATE ports p
+                JOIN switches s ON p.switch_id = s.id
+                JOIN snmp_devices sd ON s.name = sd.name
+                SET p.mac = NULL
+                WHERE sd.id = ? AND p.port_no = ?
+            ");
+            $stmt->bind_param("ii", $deviceId, $oldPort);
+            $stmt->execute();
+            $stmt->close();
+        }
+
+        // Set MAC on new port
+        $stmt = $conn->prepare("
+            UPDATE ports p
+            JOIN switches s ON p.switch_id = s.id
+            JOIN snmp_devices sd ON s.name = sd.name
+            SET p.mac = ?
+            WHERE sd.id = ? AND p.port_no = ?
+        ");
+        $stmt->bind_param("sii", $mac, $deviceId, $newPort);
+        $stmt->execute();
+        $stmt->close();
+
+        // Close alarm
+        $stmt = $conn->prepare("
+            UPDATE alarms
+            SET status = 'ACKNOWLEDGED', acknowledged_at = NOW(),
+                acknowledged_by = ?, acknowledgment_type = 'mac_moved', updated_at = NOW()
+            WHERE id = ?
+        ");
+        $stmt->bind_param("si", $user['username'], $alarmId);
+        $stmt->execute();
+        $stmt->close();
+
+        // Add to whitelist
+        if ($device) {
+            addToWhitelist($conn, $device['name'], $newPort, $mac, $user['username'], 'MAC taşındı');
+        }
+
+        // Write JSON history
+        $historyEntry = [
+            'timestamp'   => date('Y-m-d H:i:s'),
+            'switch'      => $device ? $device['name']       : '',
+            'switch_ip'   => $device ? $device['ip_address'] : '',
+            'old_port'    => (string)$oldPort,
+            'new_port'    => (string)$newPort,
+            'old_mac'     => $oldMac,
+            'new_mac'     => $mac,
+            'action'      => 'mac_moved',
+            'approved_by' => $user['username'],
+        ];
+        writeMacHistory($historyEntry);
+
+        $conn->commit();
+        echo json_encode(['success' => true, 'message' => 'MAC porta taşındı ve alarm kapatıldı']);
+    } catch (Exception $e) {
+        $conn->rollback();
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+
+/**
+ * Register a new device (or confirm existing) and assign MAC to port, then close alarm
+ */
+function registerDeviceForAlarm($conn, $auth, $data) {
+    $alarmId    = isset($data['alarm_id'])    ? intval($data['alarm_id'])              : 0;
+    $mac        = isset($data['mac_address']) ? strtoupper(trim($data['mac_address'])) : '';
+    $deviceId   = isset($data['device_id'])   ? intval($data['device_id'])             : 0;
+    $portNumber = isset($data['port_number']) ? intval($data['port_number'])           : 0;
+    $deviceName = isset($data['device_name']) ? trim($data['device_name'])             : '';
+    $ipAddress  = isset($data['ip_address'])  ? trim($data['ip_address'])              : '';
+    $location   = isset($data['location'])    ? trim($data['location'])                : '';
+    $description = isset($data['description']) ? trim($data['description'])            : '';
+
+    if ($alarmId <= 0 || empty($mac) || $deviceId <= 0 || $portNumber <= 0 || empty($deviceName)) {
+        echo json_encode(['success' => false, 'error' => 'Eksik alanlar var. Lütfen tüm zorunlu alanları doldurun.']);
+        return;
+    }
+
+    $user = $auth->getUser();
+    $conn->begin_transaction();
+    try {
+        // Upsert into mac_device_registry
+        $stmt = $conn->prepare("
+            INSERT INTO mac_device_registry
+                (mac_address, ip_address, device_name, location, notes, source, created_by)
+            VALUES (?, ?, ?, ?, ?, 'manual', ?)
+            ON DUPLICATE KEY UPDATE
+                ip_address   = VALUES(ip_address),
+                device_name  = VALUES(device_name),
+                location     = VALUES(location),
+                notes        = VALUES(notes),
+                source       = 'manual',
+                updated_by   = VALUES(created_by)
+        ");
+        $stmt->bind_param("ssssss", $mac, $ipAddress, $deviceName, $location, $description, $user['username']);
+        $stmt->execute();
+        $stmt->close();
+
+        // Assign MAC to port
+        $stmt = $conn->prepare("
+            UPDATE ports p
+            JOIN switches s ON p.switch_id = s.id
+            JOIN snmp_devices sd ON s.name = sd.name
+            SET p.mac = ?
+            WHERE sd.id = ? AND p.port_no = ?
+        ");
+        $stmt->bind_param("sii", $mac, $deviceId, $portNumber);
+        $stmt->execute();
+        $stmt->close();
+
+        // Get device name for whitelist
+        $stmt = $conn->prepare("SELECT name, ip_address FROM snmp_devices WHERE id = ?");
+        $stmt->bind_param("i", $deviceId);
+        $stmt->execute();
+        $device = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        // Close alarm
+        $stmt = $conn->prepare("
+            UPDATE alarms
+            SET status = 'ACKNOWLEDGED', acknowledged_at = NOW(),
+                acknowledged_by = ?, acknowledgment_type = 'device_registered', updated_at = NOW()
+            WHERE id = ?
+        ");
+        $stmt->bind_param("si", $user['username'], $alarmId);
+        $stmt->execute();
+        $stmt->close();
+
+        // Add to whitelist
+        if ($device) {
+            addToWhitelist($conn, $device['name'], $portNumber, $mac, $user['username'], 'Cihaz kaydedildi: ' . $deviceName);
+        }
+
+        // Write JSON history
+        $historyEntry = [
+            'timestamp'   => date('Y-m-d H:i:s'),
+            'switch'      => $device ? $device['name']       : '',
+            'switch_ip'   => $device ? $device['ip_address'] : '',
+            'old_port'    => '',
+            'new_port'    => (string)$portNumber,
+            'old_mac'     => '',
+            'new_mac'     => $mac,
+            'action'      => 'device_registered',
+            'approved_by' => $user['username'],
+        ];
+        writeMacHistory($historyEntry);
+
+        $conn->commit();
+        echo json_encode(['success' => true, 'message' => 'Cihaz kaydedildi ve alarm kapatıldı']);
+    } catch (Exception $e) {
+        $conn->rollback();
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+}
+
+/**
+ * Append a MAC history entry to the JSON log file (with file lock)
+ */
+function writeMacHistory($entry) {
+    $dir  = __DIR__ . '/logs';
+    $file = $dir . '/mac_history.json';
+
+    // Ensure directory exists
+    if (!is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
+
+    $fp = fopen($file, 'c+');
+    if (!$fp) {
+        error_log("writeMacHistory: cannot open $file");
+        return;
+    }
+    if (flock($fp, LOCK_EX)) {
+        $size = @filesize($file);
+        $existing = [];
+        if ($size !== false && $size > 0) {
+            $raw = fread($fp, $size);
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $existing = $decoded;
+            }
+        }
+        array_unshift($existing, $entry); // newest first
+        ftruncate($fp, 0);
+        rewind($fp);
+        fwrite($fp, json_encode($existing, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        fflush($fp);
+        flock($fp, LOCK_UN);
+    }
+    fclose($fp);
+}
 
