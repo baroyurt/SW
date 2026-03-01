@@ -23,7 +23,13 @@ if ($method === 'GET') {
 
     if ($action === 'list') {
         $result = $conn->query("SELECT id, username, full_name, email, role, is_active, created_at, last_login FROM users ORDER BY id ASC");
-        $users = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+        $rows = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+        // Cast numeric fields so JavaScript boolean checks work correctly
+        $users = array_map(function($u) {
+            $u['id']        = (int)$u['id'];
+            $u['is_active'] = (int)$u['is_active'];
+            return $u;
+        }, $rows);
         echo json_encode(['success' => true, 'users' => $users]);
     } else {
         echo json_encode(['success' => false, 'error' => 'Geçersiz işlem']);
@@ -63,6 +69,32 @@ if ($method === 'POST') {
         }
         $stmt->close();
 
+    } elseif ($action === 'update') {
+        $id       = (int)($data['id'] ?? 0);
+        $username = trim($data['username'] ?? '');
+        $fullName = trim($data['full_name'] ?? '');
+        $email    = trim($data['email'] ?? '');
+        $role     = in_array($data['role'] ?? '', ['admin', 'user']) ? $data['role'] : 'user';
+
+        if (!$id || !$username || !$fullName) {
+            echo json_encode(['success' => false, 'error' => 'Geçersiz kullanıcı veya kullanıcı adı ve ad soyad zorunludur']);
+            exit;
+        }
+        if ($email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            echo json_encode(['success' => false, 'error' => 'Geçersiz e-posta adresi']);
+            exit;
+        }
+
+        $stmt = $conn->prepare("UPDATE users SET username = ?, full_name = ?, email = ?, role = ? WHERE id = ?");
+        $stmt->bind_param('ssssi', $username, $fullName, $email, $role, $id);
+        if ($stmt->execute()) {
+            echo json_encode(['success' => true]);
+        } else {
+            $err = $conn->errno === 1062 ? 'Bu kullanıcı adı zaten kullanılıyor' : $stmt->error;
+            echo json_encode(['success' => false, 'error' => $err]);
+        }
+        $stmt->close();
+
     } elseif ($action === 'change_password') {
         $id       = (int)($data['id'] ?? 0);
         $password = $data['password'] ?? '';
@@ -94,7 +126,7 @@ if ($method === 'POST') {
 
         $stmt = $conn->prepare("UPDATE users SET is_active = ? WHERE id = ?");
         $stmt->bind_param('ii', $isActive, $id);
-        if ($stmt->execute() && $stmt->affected_rows > 0) {
+        if ($stmt->execute()) {
             echo json_encode(['success' => true]);
         } else {
             echo json_encode(['success' => false, 'error' => 'Güncelleme başarısız']);

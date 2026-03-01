@@ -1242,19 +1242,25 @@ header("Expires: 0");
 
             document.getElementById('adm-user-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
+                const userId = document.getElementById('adm-user-id').value;
+                const isEdit = !!userId;
                 const payload = {
-                    action: 'add',
+                    action: isEdit ? 'update' : 'add',
                     username: document.getElementById('adm-user-username').value,
                     full_name: document.getElementById('adm-user-fullname').value,
                     email: document.getElementById('adm-user-email').value,
                     role: document.getElementById('adm-user-role').value,
-                    password: document.getElementById('adm-user-password').value
                 };
+                if (isEdit) {
+                    payload.id = userId;
+                } else {
+                    payload.password = document.getElementById('adm-user-password').value;
+                }
                 try {
                     const r = await fetch('user_management_api.php', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
                     const d = await r.json();
                     if (d.success) {
-                        showToast('Kullanıcı eklendi', 'success');
+                        showToast(isEdit ? 'Kullanıcı güncellendi' : 'Kullanıcı eklendi', 'success');
                         document.getElementById('adm-user-modal').classList.remove('active');
                         loadUsers();
                     } else showToast(d.error || 'Kaydedilemedi', 'error');
@@ -1699,7 +1705,14 @@ header("Expires: 0");
                     <td><span style="color:${u.is_active?'var(--success)':'var(--danger)'}"><i class="fas fa-circle" style="font-size:8px"></i> ${u.is_active?'Aktif':'Pasif'}</span></td>
                     <td style="font-size:12px">${u.last_login ? new Date(u.last_login).toLocaleString('tr-TR') : '-'}</td>
                     <td style="white-space:nowrap">
-                        <button class="btn btn-warning-ghost" style="padding:5px 10px;font-size:12px;"
+                        <button class="btn" style="padding:5px 10px;font-size:12px;background:rgba(16,185,129,0.15);color:var(--success);border:1px solid rgba(16,185,129,0.3);"
+                            data-uid="${u.id}" data-uname="${escapeAttr(u.username)}"
+                            data-ufull="${escapeAttr(u.full_name||'')}" data-uemail="${escapeAttr(u.email||'')}"
+                            data-urole="${escapeAttr(u.role||'user')}"
+                            onclick="openEditUserModal({id:this.dataset.uid,username:this.dataset.uname,full_name:this.dataset.ufull,email:this.dataset.uemail,role:this.dataset.urole})">
+                            <i class="fas fa-edit"></i> Düzenle
+                        </button>
+                        <button class="btn btn-warning-ghost" style="padding:5px 10px;font-size:12px;margin-left:4px;"
                             data-uid="${u.id}" data-uname="${escapeAttr(u.username)}"
                             onclick="openChangePasswordModal(this.dataset.uid, this.dataset.uname)">
                             <i class="fas fa-key"></i> Şifre
@@ -1720,7 +1733,22 @@ header("Expires: 0");
             document.getElementById('adm-user-email').value = '';
             document.getElementById('adm-user-role').value = 'user';
             document.getElementById('adm-user-password').value = '';
+            document.getElementById('adm-user-password').required = true;
+            document.getElementById('adm-user-password-hint').style.display = 'none';
             document.getElementById('adm-user-modal-title').textContent = 'Yeni Kullanıcı Ekle';
+            document.getElementById('adm-user-modal').classList.add('active');
+        }
+
+        function openEditUserModal(u) {
+            document.getElementById('adm-user-id').value = u.id;
+            document.getElementById('adm-user-username').value = u.username;
+            document.getElementById('adm-user-fullname').value = u.full_name || '';
+            document.getElementById('adm-user-email').value = u.email || '';
+            document.getElementById('adm-user-role').value = u.role || 'user';
+            document.getElementById('adm-user-password').value = '';
+            document.getElementById('adm-user-password').required = false;
+            document.getElementById('adm-user-password-hint').style.display = 'block';
+            document.getElementById('adm-user-modal-title').textContent = 'Kullanıcı Düzenle';
             document.getElementById('adm-user-modal').classList.add('active');
         }
 
@@ -1978,7 +2006,8 @@ header("Expires: 0");
                             <option value="admin">Admin</option>
                         </select></div>
                     <div class="form-group"><label>Şifre *</label>
-                        <input type="password" id="adm-user-password" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--dark); color:var(--text);" required></div>
+                        <input type="password" id="adm-user-password" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--dark); color:var(--text);" required placeholder="En az 6 karakter">
+                        <small id="adm-user-password-hint" style="display:none; color:var(--text-light); margin-top:4px;">Boş bırakın — şifreyi değiştirmek istemiyorsanız</small></div>
                 </div>
                 <div style="display:flex; gap:10px; margin-top:20px;">
                     <button type="button" class="btn" style="flex:1; background:var(--border); color:var(--text);" onclick="document.getElementById('adm-user-modal').classList.remove('active')">İptal</button>
