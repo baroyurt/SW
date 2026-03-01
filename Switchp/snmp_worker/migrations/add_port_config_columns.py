@@ -87,10 +87,18 @@ def main():
         print("→ Checking existing columns...")
         
         # Columns to add (from PortStatusData model)
+        # NOTE: traffic stat columns must use the same names as update_database.php creates.
         required_columns = {
-            'port_type': 'VARCHAR(100)',  # e.g., "ethernetCsmacd", "gigabitEthernet"
-            'port_speed': 'BIGINT',        # Port speed in bps (can be large!)
-            'port_mtu': 'INTEGER',         # Maximum Transmission Unit
+            'port_type':    'VARCHAR(100)',  # e.g., "ethernetCsmacd", "gigabitEthernet"
+            'port_speed':   'BIGINT',        # Port speed in bps (can be large!)
+            'port_mtu':     'INTEGER',       # Maximum Transmission Unit
+            # Traffic statistics – must match PHP update_database.php schema
+            'in_octets':    'BIGINT DEFAULT 0',
+            'out_octets':   'BIGINT DEFAULT 0',
+            'in_errors':    'BIGINT DEFAULT 0',
+            'out_errors':   'BIGINT DEFAULT 0',
+            'in_discards':  'BIGINT DEFAULT 0',
+            'out_discards': 'BIGINT DEFAULT 0',
         }
         
         missing_columns = []
