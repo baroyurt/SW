@@ -937,8 +937,8 @@ header("Expires: 0");
         
         // Export functions
         function exportData(type) {
-            const url = `getData.php?export=${type}`;
-            window.open(url, '_blank');
+            const url = `export_excel.php?type=${type}`;
+            window.location.href = url;
             showToast(`${type} verileri indiriliyor...`, 'info');
         }
         
