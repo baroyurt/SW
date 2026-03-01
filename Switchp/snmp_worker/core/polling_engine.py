@@ -298,7 +298,13 @@ class DevicePoller:
                         port_speed=port.port_speed,
                         port_mtu=port.port_mtu,
                         mac_address=port.mac_address,
-                        vlan_id=port.vlan_id
+                        vlan_id=port.vlan_id,
+                        in_octets=port.in_octets,
+                        out_octets=port.out_octets,
+                        in_errors=port.in_errors,
+                        out_errors=port.out_errors,
+                        in_discards=port.in_discards,
+                        out_discards=port.out_discards,
                     )
                     
                     # Update operational status in legacy ports table (Issue #2 fix)

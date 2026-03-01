@@ -175,6 +175,12 @@ class CiscoC9200Mapper(VendorOIDMapper):
             self.OID_IF_ADMIN_STATUS,
             self.OID_IF_OPER_STATUS,
             self.OID_IF_HIGH_SPEED,
+            self.OID_IF_HC_IN_OCTETS,
+            self.OID_IF_HC_OUT_OCTETS,
+            self.OID_IF_IN_ERRORS,
+            self.OID_IF_OUT_ERRORS,
+            self.OID_IF_IN_DISCARDS,
+            self.OID_IF_OUT_DISCARDS,
             self.OID_PVID,        # dot1qPvid: VLAN indexed by ifIndex (works correctly)
             self.OID_CISCO_VLAN,  # vmVlan: fallback for access VLAN
         ]
@@ -276,6 +282,30 @@ class CiscoC9200Mapper(VendorOIDMapper):
                 v = self._to_int(val)
                 if v is not None:
                     ports[if_index]['port_speed'] = v * 1_000_000
+            elif self.OID_IF_HC_IN_OCTETS + '.' in oid:
+                v = self._to_int(val)
+                if v is not None:
+                    ports[if_index]['in_octets'] = v
+            elif self.OID_IF_HC_OUT_OCTETS + '.' in oid:
+                v = self._to_int(val)
+                if v is not None:
+                    ports[if_index]['out_octets'] = v
+            elif self.OID_IF_IN_ERRORS + '.' in oid:
+                v = self._to_int(val)
+                if v is not None:
+                    ports[if_index]['in_errors'] = v
+            elif self.OID_IF_OUT_ERRORS + '.' in oid:
+                v = self._to_int(val)
+                if v is not None:
+                    ports[if_index]['out_errors'] = v
+            elif self.OID_IF_IN_DISCARDS + '.' in oid:
+                v = self._to_int(val)
+                if v is not None:
+                    ports[if_index]['in_discards'] = v
+            elif self.OID_IF_OUT_DISCARDS + '.' in oid:
+                v = self._to_int(val)
+                if v is not None:
+                    ports[if_index]['out_discards'] = v
             # Note: OID_IF_PHYS_ADDRESS is intentionally NOT processed here.
             # ifPhysAddress returns the switch port's own hardware MAC, NOT the
             # connected device's MAC.  mac_address is populated exclusively from

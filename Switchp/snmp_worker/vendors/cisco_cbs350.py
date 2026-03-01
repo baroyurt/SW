@@ -119,6 +119,12 @@ class CiscoCBS350Mapper(VendorOIDMapper):
             self.OID_IF_ADMIN_STATUS,
             self.OID_IF_OPER_STATUS,
             self.OID_IF_PHYS_ADDRESS,
+            self.OID_IF_HC_IN_OCTETS,
+            self.OID_IF_HC_OUT_OCTETS,
+            self.OID_IF_IN_ERRORS,
+            self.OID_IF_OUT_ERRORS,
+            self.OID_IF_IN_DISCARDS,
+            self.OID_IF_OUT_DISCARDS,
             '1.3.6.1.2.1.17.7.1.4.2.1.5',    # dot1qVlanStaticUntaggedPorts – access ports
             '1.3.6.1.2.1.17.7.1.4.2.1.4',    # dot1qVlanStaticEgressPorts – trunk detection
         ]
@@ -290,7 +296,32 @@ class CiscoCBS350Mapper(VendorOIDMapper):
                 if_index = int(oid.split('.')[-1])
                 if if_index in ports:
                     ports[if_index]['port_mtu'] = int(value)
-        
+
+        # Parse traffic statistics (single pass for efficiency)
+        for oid, value in snmp_data.items():
+            if_index = None
+            try:
+                if_index = int(oid.split('.')[-1])
+            except (ValueError, IndexError):
+                continue
+            if if_index not in ports:
+                continue
+            try:
+                if self.OID_IF_HC_IN_OCTETS + '.' in oid:
+                    ports[if_index]['in_octets'] = int(value)
+                elif self.OID_IF_HC_OUT_OCTETS + '.' in oid:
+                    ports[if_index]['out_octets'] = int(value)
+                elif self.OID_IF_IN_ERRORS + '.' in oid:
+                    ports[if_index]['in_errors'] = int(value)
+                elif self.OID_IF_OUT_ERRORS + '.' in oid:
+                    ports[if_index]['out_errors'] = int(value)
+                elif self.OID_IF_IN_DISCARDS + '.' in oid:
+                    ports[if_index]['in_discards'] = int(value)
+                elif self.OID_IF_OUT_DISCARDS + '.' in oid:
+                    ports[if_index]['out_discards'] = int(value)
+            except (ValueError, TypeError):
+                pass
+
         # ── Assign VLAN to each port using _determine_vlan(ifIndex, ...) ────────
         # Exact same pattern as sh_int_status_snmp.py:
         #   for idx in port_indices:

@@ -21,6 +21,13 @@ class PortInfo:
     port_mtu: int
     mac_address: Optional[str] = None
     vlan_id: Optional[int] = None
+    # Traffic statistics
+    in_octets: int = 0
+    out_octets: int = 0
+    in_errors: int = 0
+    out_errors: int = 0
+    in_discards: int = 0
+    out_discards: int = 0
 
 
 @dataclass
@@ -64,6 +71,16 @@ class VendorOIDMapper(ABC):
     OID_IF_NAME = "1.3.6.1.2.1.31.1.1.1.1"
     OID_IF_ALIAS = "1.3.6.1.2.1.31.1.1.1.18"
     OID_IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"
+    OID_IF_HC_IN_OCTETS  = "1.3.6.1.2.1.31.1.1.1.6"   # ifHCInOctets  (64-bit)
+    OID_IF_HC_OUT_OCTETS = "1.3.6.1.2.1.31.1.1.1.10"  # ifHCOutOctets (64-bit)
+
+    # Traffic counters (IF-MIB, 32-bit)
+    OID_IF_IN_OCTETS    = "1.3.6.1.2.1.2.2.1.10"
+    OID_IF_IN_DISCARDS  = "1.3.6.1.2.1.2.2.1.13"
+    OID_IF_IN_ERRORS    = "1.3.6.1.2.1.2.2.1.14"
+    OID_IF_OUT_OCTETS   = "1.3.6.1.2.1.2.2.1.16"
+    OID_IF_OUT_DISCARDS = "1.3.6.1.2.1.2.2.1.19"
+    OID_IF_OUT_ERRORS   = "1.3.6.1.2.1.2.2.1.20"
     
     # Bridge MIB (for MAC address tables)
     OID_DOT1D_BASE_PORT = "1.3.6.1.2.1.17.1.4.1.2"
