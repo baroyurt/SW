@@ -463,7 +463,9 @@ class CiscoC9200Mapper(VendorOIDMapper):
         for vlan_id in active_vlans:
             ctx = f"vlan-{vlan_id}"
 
-            # bridge-port → ifIndex mapping for this VLAN context
+            # bridge-port → ifIndex mapping for this VLAN context.
+            # On Cisco IOS-XE C9300L, dot1dBasePortIfIndex may return nothing in
+            # per-VLAN context; the fallback is to treat FDB port value == ifIndex.
             bp_to_if: Dict[int, int] = {}
             for oid, val in snmp_client.get_bulk_with_context(self.OID_DOT1D_BASE_PORT, ctx):
                 if self.OID_DOT1D_BASE_PORT + '.' not in oid:
@@ -475,9 +477,6 @@ class CiscoC9200Mapper(VendorOIDMapper):
                         bp_to_if[bp] = if_idx
                 except Exception:
                     pass
-
-            if not bp_to_if:
-                continue  # No ports in this VLAN context — skip
 
             # dot1dTpFdbStatus (filter: status==3 learned)
             fdb_status: Dict[str, int] = {}
@@ -502,9 +501,17 @@ class CiscoC9200Mapper(VendorOIDMapper):
                     mac_parts = oid.split('.')[-6:]
                     mac = ':'.join(f'{int(x):02x}' for x in mac_parts)
                     bp = self._to_int(val)
+                    if not bp:
+                        continue
                     status = fdb_status.get(mac)
-                    if bp and (not has_status or status == 3) and bp in bp_to_if:
-                        if_idx = bp_to_if[bp]
+                    if has_status and status != 3:
+                        continue
+                    # Try bridge-port mapping first
+                    if_idx = bp_to_if.get(bp)
+                    # Fallback: on Cisco IOS-XE, FDB port value == ifIndex directly
+                    if if_idx is None and bp in self._if_to_port:
+                        if_idx = bp
+                    if if_idx is not None:
                         port_num = self._if_to_port.get(if_idx)
                         if port_num is not None:
                             result_sets.setdefault(port_num, set()).add(mac)

@@ -114,7 +114,8 @@ class SNMPSession:
             for errInd, errStat, _, varBinds in nextCmd(
                 engine, self.auth, transport, self._ctx(context),
                 ObjectType(ObjectIdentity(oid)),
-                lexicographicMode=False
+                lexicographicMode=False,
+                lookupMib=False
             ):
                 if errInd or errStat:
                     break
@@ -332,6 +333,9 @@ def collect_mac_addresses(session: SNMPSession, phys_indices: List[int],
     for vlan_id in active_vlans:
         ctx = f"vlan-{vlan_id}"
 
+        # Bridge-port → ifIndex mapping for this VLAN context.
+        # On Cisco IOS-XE C9300L, dot1dBasePortIfIndex may return nothing in
+        # per-VLAN context; the fallback is to treat FDB port value = ifIndex.
         bp_to_if: Dict[int, int] = {}
         for oid, val in session.walk_with_context(OID_BRIDGE_PORT_IF, ctx):
             if OID_BRIDGE_PORT_IF + '.' not in oid:
@@ -344,17 +348,21 @@ def collect_mac_addresses(session: SNMPSession, phys_indices: List[int],
             except Exception:
                 pass
 
-        if not bp_to_if:
-            continue
-
+        # Walk MAC → bridge-port FDB for this VLAN context
         for oid, val in session.walk_with_context(OID_FDB_PORT, ctx):
             if OID_FDB_PORT + '.' not in oid:
                 continue
             try:
                 mac = oid_to_mac(oid)
                 bp  = val_to_int(val)
-                if mac and bp and bp in bp_to_if:
-                    if_idx = bp_to_if[bp]
+                if not mac or not bp:
+                    continue
+                # Try bridge-port mapping first
+                if_idx = bp_to_if.get(bp)
+                # Fallback: on Cisco IOS-XE, FDB port value == ifIndex directly
+                if if_idx is None and bp in phys_set:
+                    if_idx = bp
+                if if_idx is not None:
                     ifindex_macs.setdefault(if_idx, set()).add(mac)
                     vlan_total += 1
             except Exception:
@@ -379,8 +387,13 @@ def collect_mac_addresses(session: SNMPSession, phys_indices: List[int],
         try:
             mac = oid_to_mac(oid)
             bp  = val_to_int(val)
-            if mac and bp and bp in bp_to_if_global:
-                if_idx = bp_to_if_global[bp]
+            if not mac or not bp:
+                continue
+            if_idx = bp_to_if_global.get(bp)
+            # Fallback: FDB port value == ifIndex on Cisco IOS-XE
+            if if_idx is None and bp in phys_set:
+                if_idx = bp
+            if if_idx is not None:
                 ifindex_macs.setdefault(if_idx, set()).add(mac)
                 fdb_count += 1
         except Exception:
@@ -500,6 +513,26 @@ def run_diagnostics(session: SNMPSession) -> None:
                     print(f"       ...{suffix:<18} = {str(v)[:50]}")
             else:
                 print(f"  ---- {label:<26}: ❌ YOK / CEVAP YOK")
+
+    # VLAN-context tests — C9300L requires per-VLAN SNMPv3 context for MAC table
+    print()
+    print("  VLAN-context MAC testi (vlan-1):")
+    bp_ctx = session.walk_with_context(OID_BRIDGE_PORT_IF, "vlan-1")
+    if bp_ctx:
+        print(f"  WALK dot1dBridgePortIf/vlan-1: {len(bp_ctx)} kayıt ✅")
+        for o, v in bp_ctx[:3]:
+            print(f"       ...{'.'.join(o.split('.')[-2:]):<12} = {str(v)[:40]}")
+    else:
+        print(f"  ---- dot1dBridgePortIf/vlan-1 : ❌ YOK")
+    fdb_ctx = session.walk_with_context(OID_FDB_PORT, "vlan-1")
+    if fdb_ctx:
+        print(f"  WALK dot1dTpFdbPort/vlan-1   : {len(fdb_ctx)} MAC ✅")
+        for o, v in fdb_ctx[:3]:
+            print(f"       ...{'.'.join(o.split('.')[-6:]):<20} → port {str(v)[:10]}")
+    else:
+        print(f"  ---- dot1dTpFdbPort/vlan-1    : ❌ YOK")
+        print(f"       → SNMP view bridge OID'leri içermiyor olabilir")
+        print(f"       → 'snmp-server view ... 1.3.6.1.2.1.17 included' gerekebilir")
     print()
 
 # ─── ANA PROGRAM ────────────────────────────────────────────────────────────
