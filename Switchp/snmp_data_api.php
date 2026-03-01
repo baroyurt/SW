@@ -193,12 +193,28 @@ function syncToSwitches($conn, $auth) {
         $result = $conn->query("SELECT * FROM snmp_devices WHERE enabled = 1");
         
         while ($snmpDevice = $result->fetch_assoc()) {
-            // Check if switch exists in main table
+            // Check if switch exists in main table — first by IP, then by
+            // normalized name so that a manually-added "SW31 -RUBY" (spaces)
+            // is not duplicated as a separate "SW31-RUBY" SNMP-discovered entry.
             $stmt = $conn->prepare("SELECT id FROM switches WHERE ip = ?");
             $stmt->bind_param("s", $snmpDevice['ip_address']);
             $stmt->execute();
             $existingSwitch = $stmt->get_result()->fetch_assoc();
-            
+
+            if (!$existingSwitch) {
+                // Fallback: match by name with spaces removed (normalizes "SW31 -RUBY" == "SW31-RUBY")
+                $stmt2 = $conn->prepare("SELECT id FROM switches WHERE REPLACE(name,' ','') = REPLACE(?,' ','')");
+                $stmt2->bind_param("s", $snmpDevice['name']);
+                $stmt2->execute();
+                $existingSwitch = $stmt2->get_result()->fetch_assoc();
+                // If found by name, also fix the IP so future lookups work
+                if ($existingSwitch) {
+                    $fixIp = $conn->prepare("UPDATE switches SET ip = ? WHERE id = ?");
+                    $fixIp->bind_param("si", $snmpDevice['ip_address'], $existingSwitch['id']);
+                    $fixIp->execute();
+                }
+            }
+
             if ($existingSwitch) {
                 // Update existing switch
                 $stmt = $conn->prepare("UPDATE switches SET 
@@ -457,11 +473,23 @@ function phpVlanSync($conn) {
                 continue;
             }
 
-            // Find matching switch in main table
+            // Find matching switch in main table — by IP first, then normalized name
             $swStmt = $conn->prepare("SELECT id FROM switches WHERE ip = ?");
             $swStmt->bind_param("s", $dev['ip_address']);
             $swStmt->execute();
             $sw = $swStmt->get_result()->fetch_assoc();
+            if (!$sw) {
+                $swStmt2 = $conn->prepare("SELECT id FROM switches WHERE REPLACE(name,' ','') = REPLACE(?,' ','')");
+                $swStmt2->bind_param("s", $dev['name']);
+                $swStmt2->execute();
+                $sw = $swStmt2->get_result()->fetch_assoc();
+                // Fix the IP so future syncs use the faster IP lookup
+                if ($sw) {
+                    $fixIp2 = $conn->prepare("UPDATE switches SET ip = ? WHERE id = ?");
+                    $fixIp2->bind_param("si", $dev['ip_address'], $sw['id']);
+                    $fixIp2->execute();
+                }
+            }
             $switchId = $sw ? $sw['id'] : null;
 
             foreach ($portVlan as $port => $vlan_id) {
