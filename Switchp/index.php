@@ -1708,6 +1708,7 @@ header("Expires: 0");
                         <span id="switch-detail-brand"></span>
                         <span id="switch-detail-status"></span>
                         <span id="switch-detail-ports"></span>
+                        <span id="switch-detail-poe" style="display:none;"></span>
                     </div>
                 </div>
                 <div style="display: flex; gap: 10px;">
@@ -5832,6 +5833,19 @@ else if (panelType === 'fiber') {
                 c.device && c.device.trim() !== '' && c.type && c.type !== 'BOŞ'
             ).length;
             document.getElementById('switch-detail-ports').textContent = `${activePorts}/${sw.ports} Port Aktif`;
+
+            // Fetch switch-level PoE budget and show alongside port count
+            const poeSpan = document.getElementById('switch-detail-poe');
+            poeSpan.style.display = 'none';
+            fetch(`snmp_switch_poe.php?switch_id=${sw.id}`)
+                .then(r => r.json())
+                .then(p => {
+                    if (p.success) {
+                        poeSpan.innerHTML = `<i class="fas fa-bolt" style="color:#f59e0b;"></i> PoE: ${p.used_w}W / ${p.nominal_w}W (${p.usage_pct}%)`;
+                        poeSpan.style.display = '';
+                    }
+                })
+                .catch(() => {});
             
             // Update rack bilgisi
             if (rack) {
