@@ -28,7 +28,7 @@ try {
                sd.snmp_v3_priv_password, sd.snmp_community,
                sd.snmp_engine_id
         FROM switches s
-        LEFT JOIN snmp_devices sd ON s.name = sd.name
+        LEFT JOIN snmp_devices sd ON (s.name = sd.name OR s.ip = sd.ip_address)
         WHERE s.id = ?
     ");
     $stmt->bind_param('i', $switchId);

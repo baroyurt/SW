@@ -92,7 +92,7 @@ try {
                sd.snmp_engine_id,
                s.ports
         FROM switches s
-        LEFT JOIN snmp_devices sd ON s.name = sd.name
+        LEFT JOIN snmp_devices sd ON (s.name = sd.name OR s.ip = sd.ip_address)
         WHERE s.id = ?
     ");
     $stmt->bind_param('i', $switchId);
@@ -134,7 +134,9 @@ try {
     // C9200L: GigabitEthernet1/0/N can have any ifIndex assigned by firmware.
     $isModernCatalyst = (
         strpos($switchModel, 'c9200') !== false ||
-        strpos($switchModel, '9200') !== false
+        strpos($switchModel, '9200') !== false ||
+        strpos($switchModel, 'c9300') !== false ||
+        strpos($switchModel, '9300') !== false
     );
     if ($isModernCatalyst) {
         try {
