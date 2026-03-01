@@ -6,7 +6,7 @@ Uses SQLAlchemy ORM for PostgreSQL.
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
-    Column, Integer, String, DateTime, Boolean, Text, 
+    Column, Integer, BigInteger, String, DateTime, Boolean, Text, 
     ForeignKey, Enum, Float, Index, UniqueConstraint
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -183,13 +183,13 @@ class PortStatusData(Base):
     mac_address = Column(String(17))  # MAC address of connected device
     mac_addresses = Column(Text)  # Multiple MAC addresses (JSON format)
     
-    # Statistics
-    bytes_in = Column(Integer, default=0)
-    bytes_out = Column(Integer, default=0)
-    packets_in = Column(Integer, default=0)
-    packets_out = Column(Integer, default=0)
-    errors_in = Column(Integer, default=0)
-    errors_out = Column(Integer, default=0)
+    # Statistics — column names match PHP update_database.php schema
+    in_octets    = Column(BigInteger, default=0)
+    out_octets   = Column(BigInteger, default=0)
+    in_errors    = Column(BigInteger, default=0)
+    out_errors   = Column(BigInteger, default=0)
+    in_discards  = Column(BigInteger, default=0)
+    out_discards = Column(BigInteger, default=0)
     
     # Timestamps
     first_seen = Column(DateTime, default=get_current_time, nullable=False)

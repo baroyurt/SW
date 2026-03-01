@@ -19,6 +19,9 @@ from vendors.base import PortInfo, DeviceInfo
 from models.database import DeviceStatus, PortStatus, SNMPDevice
 from utils.logger import DeviceLoggerAdapter
 
+# OID constants used directly in the polling engine
+_OID_DOT1Q_PVID = '1.3.6.1.2.1.17.7.1.4.5.1.1'  # dot1qPvid (ifIndex → VLAN ID)
+
 
 class DevicePoller:
     """Polls a single device and collects SNMP data."""
@@ -194,15 +197,51 @@ class DevicePoller:
     def _poll_mac_table(self) -> Dict[int, List[str]]:
         """Poll MAC address table."""
         try:
+            # For Cisco IOS-XE mappers that support per-VLAN context MAC collection
+            # (C9200L / C9300L), prefer that method — it yields real MACs whereas
+            # the empty-context dot1d walk returns nothing on these firmware versions.
+            if hasattr(self.vendor_mapper, 'collect_mac_with_vlan_contexts'):
+                # Gather unique VLANs from already-polled port data so we only
+                # query the contexts that are actually in use.
+                active_vlans: List[int] = [1]  # always include VLAN 1
+                try:
+                    # vendor_mapper._if_to_port is populated by parse_port_info;
+                    # PVID data is in the mapper's internal pvid/cisco_vlan maps.
+                    # We re-walk the port list indirectly through a fresh PVID
+                    # query or fall back to querying the full range.
+                    pvid_results = self.snmp_client.get_bulk(
+                        _OID_DOT1Q_PVID,  # dot1qPvid
+                        self.snmp_config.max_bulk_size
+                    )
+                    seen_vlans = {1}
+                    for oid, val in pvid_results:
+                        try:
+                            v = int(str(val))
+                            if 1 <= v <= 4094:
+                                seen_vlans.add(v)
+                        except Exception:
+                            pass
+                    active_vlans = sorted(seen_vlans)
+                except Exception:
+                    pass  # fall back to default [1]
+
+                mac_table = self.vendor_mapper.collect_mac_with_vlan_contexts(
+                    self.snmp_client, active_vlans
+                )
+                if mac_table:
+                    return mac_table
+                # If VLAN-context walk returned nothing, fall through to
+                # the standard walk (backward-compatible).
+
             oid_prefixes = self.vendor_mapper.get_mac_table_oids()
-            
+
             # Walk MAC table OIDs
             snmp_data = {}
             for oid_prefix in oid_prefixes:
                 results = self.snmp_client.get_bulk(oid_prefix, self.snmp_config.max_bulk_size)
                 for oid, value in results:
                     snmp_data[oid] = value
-            
+
             # Parse MAC table
             mac_table = self.vendor_mapper.parse_mac_table(snmp_data)
             return mac_table
@@ -233,6 +272,23 @@ class DevicePoller:
             poll_result: Poll results dictionary
         """
         with self.db_manager.session_scope() as session:
+            # Build kwargs — include SNMPv3 credentials so snmp_devices table
+            # holds them for LLDP collection and other services (autosync, etc.)
+            device_kwargs = dict(
+                snmp_version=self.device_config.snmp_version,
+                snmp_community=self.device_config.community if self.device_config.snmp_version == '2c' else None,
+                enabled=self.device_config.enabled,
+            )
+            if self.device_config.snmp_version == '3' and self.device_config.snmp_v3:
+                v3 = self.device_config.snmp_v3
+                device_kwargs.update(
+                    snmp_v3_username=v3.get('username'),
+                    snmp_v3_auth_protocol=v3.get('auth_protocol'),
+                    snmp_v3_auth_password=v3.get('auth_password'),
+                    snmp_v3_priv_protocol=v3.get('priv_protocol'),
+                    snmp_v3_priv_password=v3.get('priv_password'),
+                )
+
             # Get or create device
             device = self.db_manager.get_or_create_device(
                 session,
@@ -240,9 +296,7 @@ class DevicePoller:
                 ip_address=self.device_config.ip,
                 vendor=self.device_config.vendor,
                 model=self.device_config.model,
-                snmp_version=self.device_config.snmp_version,
-                snmp_community=self.device_config.community if self.device_config.snmp_version == '2c' else None,
-                enabled=self.device_config.enabled
+                **device_kwargs
             )
             
             # Update device status
@@ -298,7 +352,13 @@ class DevicePoller:
                         port_speed=port.port_speed,
                         port_mtu=port.port_mtu,
                         mac_address=port.mac_address,
-                        vlan_id=port.vlan_id
+                        vlan_id=port.vlan_id,
+                        in_octets=port.in_octets,
+                        out_octets=port.out_octets,
+                        in_errors=port.in_errors,
+                        out_errors=port.out_errors,
+                        in_discards=port.in_discards,
+                        out_discards=port.out_discards,
                     )
                     
                     # Update operational status in legacy ports table (Issue #2 fix)

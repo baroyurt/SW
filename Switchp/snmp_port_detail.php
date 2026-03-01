@@ -92,16 +92,28 @@ try {
                sd.snmp_engine_id,
                s.ports
         FROM switches s
-        LEFT JOIN snmp_devices sd ON s.name = sd.name
+        LEFT JOIN snmp_devices sd ON (s.name = sd.name OR s.ip = sd.ip_address)
         WHERE s.id = ?
     ");
     $stmt->bind_param('i', $switchId);
     $stmt->execute();
     $sw = $stmt->get_result()->fetch_assoc();
 
-    if (!$sw || empty($sw['ip_address'])) {
-        echo json_encode(['success'=>false,'error'=>'Bu switch için SNMP yapılandırması yok']);
+    // When snmp_devices has no row, fall back to config.yml credentials.
+    // This handles the case where the switch was manually added to the UI
+    // before the Python worker ran (so snmp_devices is empty for this switch).
+    if (!$sw) {
+        echo json_encode(['success'=>false,'error'=>'Switch bulunamadı']);
         exit;
+    }
+    if (empty($sw['ip_address'])) {
+        $creds = getSnmpCredsFromConfig($sw['ip'] ?? '');
+        if ($creds) {
+            $sw = array_merge($sw, $creds);
+        } else {
+            echo json_encode(['success'=>false,'error'=>'Bu switch için SNMP yapılandırması yok']);
+            exit;
+        }
     }
 
     if (!extension_loaded('snmp')) {
@@ -134,7 +146,9 @@ try {
     // C9200L: GigabitEthernet1/0/N can have any ifIndex assigned by firmware.
     $isModernCatalyst = (
         strpos($switchModel, 'c9200') !== false ||
-        strpos($switchModel, '9200') !== false
+        strpos($switchModel, '9200') !== false ||
+        strpos($switchModel, 'c9300') !== false ||
+        strpos($switchModel, '9300') !== false
     );
     if ($isModernCatalyst) {
         try {
@@ -203,21 +217,23 @@ try {
     // ifPhysAddress is intentionally excluded: SFP uplinks may have no L2 address
     // yet still respond to SNMP normally, which would cause a false positive.
     $snmpFailed = empty($ifDescr) && $ifMtu === 0;
-    if ($snmpFailed) {
-        $dbStmt = $conn->prepare("
-            SELECT psd.port_name, psd.port_alias, psd.admin_status, psd.oper_status,
-                   psd.port_speed, psd.port_mtu, psd.mac_address, psd.vlan_id,
-                   psd.in_octets, psd.out_octets, psd.in_errors, psd.out_errors
-            FROM port_status_data psd
-            JOIN snmp_devices sd ON psd.device_id = sd.id
-            JOIN switches s ON (s.name = sd.name OR s.ip = sd.ip_address)
-            WHERE s.id = ? AND psd.port_number = ?
-            ORDER BY psd.id DESC LIMIT 1
-        ");
-        $dbStmt->bind_param('ii', $switchId, $portNum);
-        $dbStmt->execute();
-        $dbRow = $dbStmt->get_result()->fetch_assoc();
-        if ($dbRow) {
+
+    // Always query port_status_data — it is polled by the Python worker and is
+    // the same authoritative source the Port Connections tab uses to show UP/DOWN.
+    $dbStmt = $conn->prepare("
+        SELECT psd.*
+        FROM port_status_data psd
+        JOIN snmp_devices sd ON psd.device_id = sd.id
+        JOIN switches s ON (s.name = sd.name OR s.ip = sd.ip_address)
+        WHERE s.id = ? AND psd.port_number = ?
+        ORDER BY psd.id DESC LIMIT 1
+    ");
+    $dbStmt->bind_param('ii', $switchId, $portNum);
+    $dbStmt->execute();
+    $dbRow = $dbStmt->get_result()->fetch_assoc();
+    if ($dbRow) {
+        if ($snmpFailed) {
+            // Full fallback: SNMP is unreachable — use all fields from DB.
             $portLabel = $isModernCatalyst ? "Gi1/0/$portNum" : "GE$portNum";
             $descrLabel = $isModernCatalyst ? "GigabitEthernet1/0/$portNum" : "GE$portNum";
             $ifName        = $dbRow['port_name']  ?: $portLabel;
@@ -228,14 +244,17 @@ try {
             $ifHighSpeed   = intval($dbRow['port_speed'] ?? 0);
             $ifHighSpeed   = $ifHighSpeed > 0 ? round($ifHighSpeed / 1000000) : 0;
             $ifPhysAddress = $dbRow['mac_address'] ?? '';
-            $ifAdminStatus = ($dbRow['admin_status'] === 'up') ? 1 : 2;
-            $ifOperStatus  = ($dbRow['oper_status']  === 'up') ? 1 : 2;
             $dot1qPvid     = intval($dbRow['vlan_id'] ?? 1);
-            $inOctets      = intval($dbRow['in_octets']  ?? 0);
-            $outOctets     = intval($dbRow['out_octets'] ?? 0);
-            $inErrors      = intval($dbRow['in_errors']  ?? 0);
-            $outErrors     = intval($dbRow['out_errors'] ?? 0);
+            $inOctets      = intval($dbRow['in_octets']  ?? $dbRow['bytes_in']  ?? 0);
+            $outOctets     = intval($dbRow['out_octets'] ?? $dbRow['bytes_out'] ?? 0);
+            $inErrors      = intval($dbRow['in_errors']  ?? $dbRow['errors_in'] ?? 0);
+            $outErrors     = intval($dbRow['out_errors'] ?? $dbRow['errors_out'] ?? 0);
         }
+        // Always prefer port_status_data for admin/oper status regardless of whether
+        // live SNMP is reachable. The Python worker independently polls the switch and
+        // stores the correct status here — this is what the Port Connections tab uses.
+        $ifAdminStatus = ($dbRow['admin_status'] === 'up') ? 1 : 2;
+        $ifOperStatus  = ($dbRow['oper_status']  === 'up') ? 1 : 2;
     }
 
     // VLAN untagged walk (CBS350 only — bitmap approach works for sequential ifIndex)

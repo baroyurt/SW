@@ -4,8 +4,8 @@ include "db.php";
 header('Content-Type: application/json');
 
 try {
-    $action = isset($_GET['action']) ? $_GET['action'] : '';
-    $backupName = isset($_GET['name']) ? $_GET['name'] : '';
+    $action = $_REQUEST['action'] ?? '';
+    $backupName = $_REQUEST['name'] ?? '';
     
     if ($action === 'create') {
         // Tüm verileri al
@@ -33,8 +33,9 @@ try {
         file_put_contents($filename, json_encode($backupData, JSON_PRETTY_PRINT));
         
         echo json_encode([
+            'success' => true,
             'status' => 'ok',
-            'message' => 'Yedek oluşturuldu',
+            'message' => 'Yedek başarıyla oluşturuldu: ' . basename($filename),
             'filename' => $filename
         ]);
         
@@ -56,15 +57,19 @@ try {
         }
         
         echo json_encode([
+            'success' => true,
             'status' => 'ok',
             'backups' => $backups
         ]);
         
     } elseif ($action === 'restore') {
-        $filename = isset($_GET['file']) ? 'backups/' . $_GET['file'] : '';
+        $filename = isset($_REQUEST['file']) ? 'backups/' . basename($_REQUEST['file']) : '';
         
-        if (!file_exists($filename)) {
-            throw new Exception('Yedek dosyası bulunamadı');
+        // Ensure file is within the backups directory
+        $backupDir = realpath('backups');
+        $resolvedFile = $filename ? realpath($filename) : false;
+        if (!$resolvedFile || !$backupDir || strpos($resolvedFile, $backupDir . DIRECTORY_SEPARATOR) !== 0) {
+            throw new Exception('Geçersiz yedek dosyası');
         }
         
         $backupData = json_decode(file_get_contents($filename), true);
@@ -98,6 +103,7 @@ try {
         }
         
         echo json_encode([
+            'success' => true,
             'status' => 'ok',
             'message' => 'Yedek başarıyla geri yüklendi'
         ]);
@@ -108,7 +114,9 @@ try {
     
 } catch (Exception $e) {
     echo json_encode([
+        'success' => false,
         'status' => 'error',
+        'error' => $e->getMessage(),
         'message' => $e->getMessage()
     ]);
 }

@@ -310,7 +310,84 @@ class SNMPClient:
         except Exception as e:
             self.logger.debug(f"Exception during SNMP GETNEXT walk: {e}")
         return results
-    
+
+    def get_bulk_with_context(self, oid: str, context_name: str,
+                              max_repetitions: int = 50) -> List[Tuple[str, Any]]:
+        """Walk an OID subtree using a specific SNMPv3 context name.
+
+        Required for Cisco IOS-XE (C9200L / C9300L) MAC table access:
+        the dot1d Bridge FDB is per-VLAN and only reachable via the
+        ``vlan-<id>`` SNMPv3 context.  The standard empty-context walk
+        returns nothing for those tables.
+
+        Args:
+            oid: Starting OID prefix to walk.
+            context_name: SNMPv3 context name, e.g. ``"vlan-1"`` or ``"vlan-130"``.
+            max_repetitions: GETBULK max-repetitions value.
+
+        Returns:
+            List of (oid_string, value) tuples, or empty list on error.
+        """
+        if not SNMP_AVAILABLE:
+            return []
+        results: List[Tuple[str, Any]] = []
+        try:
+            engine = SnmpEngine()
+            transport = UdpTransportTarget(
+                (self.host, self.port),
+                timeout=self.timeout,
+                retries=self.retries
+            )
+            auth = self._setup_auth()
+            ctx = ContextData(contextName=context_name.encode() if isinstance(context_name, str) else context_name)
+
+            iterator = bulkCmd(
+                engine,
+                auth,
+                transport,
+                ctx,
+                0,
+                max_repetitions,
+                ObjectType(ObjectIdentity(oid)),
+                lexicographicMode=False,
+                lookupMib=False
+            )
+            for errorIndication, errorStatus, errorIndex, varBinds in iterator:
+                if errorIndication or errorStatus:
+                    break
+                for name, value in varBinds:
+                    results.append((_oid_to_str(name), value))
+        except Exception as e:
+            self.logger.debug(f"SNMP GETBULK context '{context_name}' error: {e}")
+        # Fall back to GETNEXT if GETBULK returned nothing
+        if not results:
+            try:
+                engine = SnmpEngine()
+                transport = UdpTransportTarget(
+                    (self.host, self.port),
+                    timeout=self.timeout,
+                    retries=self.retries
+                )
+                auth = self._setup_auth()
+                ctx = ContextData(contextName=context_name.encode() if isinstance(context_name, str) else context_name)
+                iterator = nextCmd(
+                    engine,
+                    auth,
+                    transport,
+                    ctx,
+                    ObjectType(ObjectIdentity(oid)),
+                    lexicographicMode=False,
+                    lookupMib=False
+                )
+                for errorIndication, errorStatus, errorIndex, varBinds in iterator:
+                    if errorIndication or errorStatus:
+                        break
+                    for name, value in varBinds:
+                        results.append((_oid_to_str(name), value))
+            except Exception as e:
+                self.logger.debug(f"SNMP GETNEXT context '{context_name}' error: {e}")
+        return results
+
     def get_multiple(self, oids: List[str]) -> Dict[str, Any]:
         """
         Get multiple OIDs in a single request.

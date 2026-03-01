@@ -345,9 +345,78 @@ $currentUser = $auth->getUser();
             font-family: 'Courier New', monospace;
             color: var(--primary);
         }
+
+        /* Toast notifications */
+        #toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+        .toast {
+            padding: 14px 20px;
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            max-width: 380px;
+            pointer-events: auto;
+            animation: toastIn 0.3s ease;
+        }
+        .toast.success { background: rgba(16,185,129,0.95); border-left: 4px solid #059669; }
+        .toast.error   { background: rgba(239,68,68,0.95);  border-left: 4px solid #dc2626; }
+        .toast.info    { background: rgba(59,130,246,0.95);  border-left: 4px solid #2563eb; }
+        @keyframes toastIn  { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes toastOut { from { transform: translateX(0);    opacity: 1; } to { transform: translateX(110%); opacity: 0; } }
+
+        /* Confirm modal */
+        .confirm-modal {
+            display: none;
+            position: fixed; z-index: 10000;
+            left: 0; top: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(5px);
+            justify-content: center; align-items: center;
+        }
+        .confirm-modal.show { display: flex; }
+        .confirm-modal-content {
+            background: var(--dark-light);
+            padding: 30px;
+            border-radius: 15px;
+            width: 90%; max-width: 460px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .confirm-modal-title {
+            font-size: 18px; font-weight: bold; color: var(--text);
+            margin-bottom: 15px; display: flex; align-items: center; gap: 10px;
+        }
+        .confirm-modal-body { color: var(--text-light); line-height: 1.6; margin-bottom: 24px; font-size: 14px; }
+        .confirm-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
     </style>
 </head>
 <body>
+    <div id="toast-container"></div>
+
+    <!-- Confirm Modal -->
+    <div id="confirmModal" class="confirm-modal">
+        <div class="confirm-modal-content">
+            <div class="confirm-modal-title"><i class="fas fa-question-circle" style="color:var(--warning);"></i> <span id="confirmTitle"></span></div>
+            <div class="confirm-modal-body" id="confirmBody"></div>
+            <div class="confirm-modal-actions">
+                <button id="confirmCancel" style="padding:10px 20px;border:1px solid var(--border);background:transparent;color:var(--text-light);border-radius:8px;cursor:pointer;font-size:14px;">
+                    <i class="fas fa-times"></i> İptal
+                </button>
+                <button id="confirmOk" style="padding:10px 20px;background:var(--success);color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">
+                    <i class="fas fa-check"></i> Onayla
+                </button>
+            </div>
+        </div>
+    </div>
     <div class="container">
         <!-- Action Buttons Row -->
         <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
@@ -725,6 +794,59 @@ $currentUser = $auth->getUser();
         let currentLimit = 10;
         let currentSearch = '';
         let searchTimeout = null;
+        // { updated: Set, already_current: Set, unmatched: Set } – persisted in localStorage
+        let applyMatchStatus = null;
+
+        // Toast notification helper
+        function showToast(message, type = 'info', duration = 4500) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast ' + type;
+            const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+            toast.textContent = icon + ' ' + message;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'toastOut 0.3s ease forwards';
+                setTimeout(() => toast.remove(), 310);
+            }, duration);
+        }
+
+        // Confirm modal helper
+        function showConfirm(title, body) {
+            return new Promise(resolve => {
+                document.getElementById('confirmTitle').textContent = title;
+                document.getElementById('confirmBody').textContent = body;
+                const modal = document.getElementById('confirmModal');
+                modal.classList.add('show');
+                const ok     = document.getElementById('confirmOk');
+                const cancel = document.getElementById('confirmCancel');
+                const cleanup = (result) => {
+                    modal.classList.remove('show');
+                    ok.removeEventListener('click', onOk);
+                    cancel.removeEventListener('click', onCancel);
+                    resolve(result);
+                };
+                const onOk     = () => cleanup(true);
+                const onCancel = () => cleanup(false);
+                ok.addEventListener('click', onOk);
+                cancel.addEventListener('click', onCancel);
+            });
+        }
+
+        // Restore persisted match status
+        (function restoreMatchStatus() {
+            try {
+                const stored = localStorage.getItem('applyMatchStatus');
+                if (stored) {
+                    const p = JSON.parse(stored);
+                    applyMatchStatus = {
+                        updated:         new Set(p.updated         || []),
+                        already_current: new Set(p.already_current || []),
+                        unmatched:       new Set(p.unmatched       || [])
+                    };
+                }
+            } catch (e) { console.error('Failed to restore match status:', e); }
+        })();
         
         // Search functionality
         document.getElementById('device-search').addEventListener('input', (e) => {
@@ -799,8 +921,23 @@ $currentUser = $auth->getUser();
                 </tr>`;
             
             devices.forEach(device => {
-                html += `<tr>
-                    <td><code>${device.mac_address}</code></td>
+                let rowStyle = '';
+                let matchBadge = '';
+                if (applyMatchStatus) {
+                    const mac = device.mac_address;
+                    if (applyMatchStatus.updated.has(mac)) {
+                        rowStyle = 'background: rgba(16,185,129,0.12);';
+                        matchBadge = '<span style="margin-left:6px;padding:2px 7px;border-radius:10px;font-size:0.75em;background:#10b981;color:#fff;vertical-align:middle;">✓ Güncellendi</span>';
+                    } else if (applyMatchStatus.already_current.has(mac)) {
+                        rowStyle = 'background: rgba(59,130,246,0.10);';
+                        matchBadge = '<span style="margin-left:6px;padding:2px 7px;border-radius:10px;font-size:0.75em;background:#3b82f6;color:#fff;vertical-align:middle;">✓ Eşleşti</span>';
+                    } else if (applyMatchStatus.unmatched.has(mac)) {
+                        rowStyle = 'background: rgba(239,68,68,0.12);';
+                        matchBadge = '<span style="margin-left:6px;padding:2px 7px;border-radius:10px;font-size:0.75em;background:#ef4444;color:#fff;vertical-align:middle;">✗ Eşleşmedi</span>';
+                    }
+                }
+                html += `<tr style="${rowStyle}">
+                    <td><code>${device.mac_address}</code>${matchBadge}</td>
                     <td>${device.ip_address || '-'}</td>
                     <td><strong>${device.device_name}</strong></td>
                     <td><span style="color: var(--${device.source === 'manual' ? 'success' : 'primary'});">${device.source}</span></td>
@@ -981,9 +1118,11 @@ $currentUser = $auth->getUser();
         
         // Bulk apply Device Import data to all matching ports
         async function applyDeviceImportToPorts() {
-            if (!confirm('Device Import verilerini tüm eşleşen portlara uygulamak istiyor musunuz?\n\nBu işlem, MAC adresi eşleşen tüm port bağlantılarının IP ve Hostname bilgilerini güncelleyecektir.')) {
-                return;
-            }
+            const ok = await showConfirm(
+                'Portlara Uygula',
+                'Device Import verilerini tüm eşleşen portlara uygulamak istiyor musunuz? Bu işlem, MAC adresi eşleşen tüm port bağlantılarının IP ve Hostname bilgilerini güncelleyecektir.'
+            );
+            if (!ok) return;
             
             const btn = document.getElementById('applyToPortsBtn');
             const originalText = btn.innerHTML;
@@ -998,13 +1137,30 @@ $currentUser = $auth->getUser();
                 const data = await response.json();
                 
                 if (data.success) {
-                    alert(`Başarılı! ${data.updated_count} port bağlantısı güncellendi.`);
+                    const updCnt  = (data.updated_macs         || []).length;
+                    const curCnt  = (data.already_current_macs || []).length;
+                    const unCnt   = (data.unmatched_macs       || []).length;
+                    showToast(`Tamamlandı! ${data.updated_count} port güncellendi. ✓ Güncellendi: ${updCnt}  ✓ Eşleşti: ${curCnt}  ✗ Eşleşmedi: ${unCnt}`, 'success', 6000);
+                    applyMatchStatus = {
+                        updated:         new Set(data.updated_macs         || []),
+                        already_current: new Set(data.already_current_macs || []),
+                        unmatched:       new Set(data.unmatched_macs       || [])
+                    };
+                    // Persist so results survive page refresh
+                    try {
+                        localStorage.setItem('applyMatchStatus', JSON.stringify({
+                            updated:         [...applyMatchStatus.updated],
+                            already_current: [...applyMatchStatus.already_current],
+                            unmatched:       [...applyMatchStatus.unmatched]
+                        }));
+                    } catch (e) { console.error('Failed to persist match status:', e); }
+                    loadDevices();
                 } else {
-                    alert('Hata: ' + (data.error || 'Bilinmeyen hata'));
+                    showToast('Hata: ' + (data.error || 'Bilinmeyen hata'), 'error');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                alert('Hata: ' + error.message);
+                showToast('Hata: ' + error.message, 'error');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = originalText;

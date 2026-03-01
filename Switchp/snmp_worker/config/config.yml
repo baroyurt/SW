@@ -44,6 +44,22 @@ switches:
       priv_protocol: "AES"
       priv_password: "PrivPass123"
 
+  - name: "SW31-RUBY"
+    host: "172.18.1.218"
+    vendor: "cisco"
+    model: "C9300L"
+    enabled: true
+    description: "SW31 - RUBY Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
 
 # Alarm Configuration
 alarms:

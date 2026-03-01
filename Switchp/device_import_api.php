@@ -525,6 +525,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             }
             
             $updated_count = 0;
+            $updated_macs = [];
+            $already_current_macs = [];
+            $unmatched_macs = [];
             
             // For each device, find and update matching ports
             while ($device = $result->fetch_assoc()) {
@@ -535,6 +538,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 // Normalize MAC for comparison (remove colons, lowercase)
                 $macNormalized = strtolower(str_replace(':', '', $mac));
                 
+                // Check whether any port row has this MAC (regardless of whether data changes)
+                $checkStmt = $conn->prepare("
+                    SELECT COUNT(*) as cnt FROM ports
+                    WHERE LOWER(REPLACE(mac, ':', '')) = ?
+                    AND mac IS NOT NULL
+                    AND mac != ''
+                ");
+                $portExists = false;
+                if ($checkStmt) {
+                    $checkStmt->bind_param('s', $macNormalized);
+                    $checkStmt->execute();
+                    $checkResult = $checkStmt->get_result();
+                    $portExists = ($checkResult->fetch_assoc()['cnt'] ?? 0) > 0;
+                    $checkStmt->close();
+                }
+
+                if ($portExists) {
+                    // tracked after update below
+                } else {
+                    $unmatched_macs[] = $mac;
+                }
+
                 // Update ports table (same as Port Edit uses)
                 // Update ip and connection_info columns
                 $updateStmt = $conn->prepare("
@@ -549,7 +574,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 if ($updateStmt) {
                     $updateStmt->bind_param('sss', $ip, $hostname, $macNormalized);
                     $updateStmt->execute();
-                    $updated_count += $updateStmt->affected_rows;
+                    $rowsAffected = $updateStmt->affected_rows;
+                    if ($portExists) {
+                        if ($rowsAffected > 0) {
+                            $updated_macs[] = $mac;
+                            $updated_count += $rowsAffected;
+                        } else {
+                            $already_current_macs[] = $mac;
+                        }
+                    }
                     $updateStmt->close();
                 }
             }
@@ -559,7 +592,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             echo json_encode([
                 'success' => true,
                 'updated_count' => $updated_count,
-                'message' => "$updated_count port description(s) updated with Device Import data"
+                'message' => "$updated_count port description(s) updated with Device Import data",
+                'updated_macs' => array_values(array_unique($updated_macs)),
+                'already_current_macs' => array_values(array_unique($already_current_macs)),
+                'matched_macs' => array_values(array_unique(array_merge($updated_macs, $already_current_macs))),
+                'unmatched_macs' => array_values(array_unique($unmatched_macs))
             ]);
         } catch (Exception $e) {
             echo json_encode(['success' => false, 'error' => $e->getMessage()]);
