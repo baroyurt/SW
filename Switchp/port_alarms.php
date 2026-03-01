@@ -969,6 +969,11 @@ $alarmsData = getActiveAlarmsData($conn);
                 if (data.success) {
                     alert('Alarm başarıyla kapatıldı');
                     closeAckModal();
+                    // If this was a MAC-change alarm, sync Device Import data to ports
+                    const alarm = alarmsData.find(a => a.id === selectedAlarmId);
+                    if (alarm && (alarm.alarm_type === 'mac_moved' || alarm.alarm_type === 'mac_added')) {
+                        await autoApplyToPortsSilent();
+                    }
                     loadAlarms();  // Reload alarm data instead of page
                 } else {
                     alert('Hata: ' + (data.error || 'Bilinmeyen hata'));
@@ -1160,8 +1165,11 @@ $alarmsData = getActiveAlarmsData($conn);
                     body: JSON.stringify({ alarm_id: alarmId, mac_address: newMac, device_id: deviceId, old_port: previousPort, new_port: portNumber })
                 });
                 const data = await resp.json();
-                if (data.success) { alert('✅ ' + (data.message || 'MAC porta taşındı ve alarm kapatıldı.')); loadAlarms(); }
-                else              { alert('❌ Hata: ' + (data.error || 'İşlem başarısız')); }
+                if (data.success) {
+                    alert('✅ ' + (data.message || 'MAC porta taşındı ve alarm kapatıldı.'));
+                    await autoApplyToPortsSilent();
+                    loadAlarms();
+                } else { alert('❌ Hata: ' + (data.error || 'İşlem başarısız')); }
             } catch (err) { alert('❌ Hata: ' + err.message); }
         }
 
@@ -1185,8 +1193,11 @@ $alarmsData = getActiveAlarmsData($conn);
                     })
                 });
                 const data = await resp.json();
-                if (data.success) { alert('✅ ' + (data.message || 'Cihaz kaydedildi ve alarm kapatıldı.')); loadAlarms(); }
-                else              { alert('❌ Hata: ' + (data.error || 'İşlem başarısız')); }
+                if (data.success) {
+                    alert('✅ ' + (data.message || 'Cihaz kaydedildi ve alarm kapatıldı.'));
+                    await autoApplyToPortsSilent();
+                    loadAlarms();
+                } else { alert('❌ Hata: ' + (data.error || 'İşlem başarısız')); }
             } catch (err) { alert('❌ Hata: ' + err.message); }
         }
 
@@ -1212,9 +1223,30 @@ $alarmsData = getActiveAlarmsData($conn);
                     })
                 });
                 const data = await resp.json();
-                if (data.success) { alert('✅ ' + (data.message || 'Cihaz kaydedildi ve alarm kapatıldı.')); loadAlarms(); }
-                else              { alert('❌ Hata: ' + (data.error || 'İşlem başarısız')); }
+                if (data.success) {
+                    alert('✅ ' + (data.message || 'Cihaz kaydedildi ve alarm kapatıldı.'));
+                    await autoApplyToPortsSilent();
+                    loadAlarms();
+                } else { alert('❌ Hata: ' + (data.error || 'İşlem başarısız')); }
             } catch (err) { alert('❌ Hata: ' + err.message); }
+        }
+
+        // Silently applies Device Import registry data to all matching ports.
+        // Called automatically after any MAC change alarm is closed.
+        async function autoApplyToPortsSilent() {
+            try {
+                const resp = await fetch('device_import_api.php?action=apply_to_ports', { method: 'POST' });
+                if (!resp.ok) {
+                    console.warn('autoApplyToPortsSilent HTTP hatası:', resp.status, resp.statusText);
+                    return;
+                }
+                const data = await resp.json();
+                if (!data.success) {
+                    console.warn('autoApplyToPortsSilent API hatası:', data.error || 'Bilinmeyen hata');
+                }
+            } catch (err) {
+                console.warn('autoApplyToPortsSilent hatası:', err);
+            }
         }
         // ─────────────────────────────────────────────────────────────────
     </script>
