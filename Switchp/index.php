@@ -134,7 +134,7 @@ header("Expires: 0");
             height: 40px;
             border-radius: 50%;
             cursor: pointer;
-            display: flex;
+            display: none;
             align-items: center;
             justify-content: center;
             transition: all 0.3s ease;
@@ -1586,6 +1586,7 @@ header("Expires: 0");
             </button>
         </div>
         
+        <?php if ($currentUser['role'] === 'admin'): ?>
         <div class="nav-section">
             <div class="nav-title">SNMP Admin</div>
             <button class="nav-item" id="nav-snmp-admin" onclick="window.open('admin.php', '_blank')" style="background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3);">
@@ -1593,6 +1594,7 @@ header("Expires: 0");
                 <span>SNMP Admin Panel</span>
             </button>
         </div>
+        <?php endif; ?>
         
         <div class="nav-section">
             <div class="nav-title">Kullanıcı</div>
@@ -1636,7 +1638,7 @@ header("Expires: 0");
                 <div class="stat-card">
                     <i class="fas fa-plug stat-icon"></i>
                     <div class="stat-value" id="stat-active-ports">0</div>
-                    <div class="stat-label">Aktif Port</div>
+                    <div class="stat-label"><span id="stat-total-ports-label">0</span> Port / <span id="stat-active-ports-label">0</span> Aktif Port</div>
                 </div>
                 <div class="stat-card">
                     <i class="fas fa-cube stat-icon"></i>
@@ -4890,6 +4892,9 @@ function confirmDeleteRack(rackId) {
                 const totalPatchPanels = patchPanels.length;
                 const totalFiberPanels = fiberPanels.length;
                 
+                // Total ports = sum of each switch's port capacity
+                const totalPorts = switches.reduce((sum, sw) => sum + (parseInt(sw.ports) || 0), 0);
+
                 let activePorts = 0;
                 
                 Object.values(portConnections).forEach(connections => {
@@ -4901,6 +4906,8 @@ function confirmDeleteRack(rackId) {
                 document.getElementById('stat-total-racks').textContent = totalRacks;
                 document.getElementById('stat-total-panels').textContent = totalPatchPanels + totalFiberPanels;
                 document.getElementById('stat-active-ports').textContent = activePorts;
+                document.getElementById('stat-total-ports-label').textContent = totalPorts;
+                document.getElementById('stat-active-ports-label').textContent = activePorts;
                 
             } catch (error) {
                 console.error('updateStats hatası:', error);
