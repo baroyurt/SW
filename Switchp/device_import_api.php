@@ -537,6 +537,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 // Normalize MAC for comparison (remove colons, lowercase)
                 $macNormalized = strtolower(str_replace(':', '', $mac));
                 
+                // Check whether any port row has this MAC (regardless of whether data changes)
+                $checkStmt = $conn->prepare("
+                    SELECT COUNT(*) as cnt FROM ports
+                    WHERE LOWER(REPLACE(mac, ':', '')) = ?
+                    AND mac IS NOT NULL
+                    AND mac != ''
+                ");
+                $portExists = false;
+                if ($checkStmt) {
+                    $checkStmt->bind_param('s', $macNormalized);
+                    $checkStmt->execute();
+                    $checkResult = $checkStmt->get_result();
+                    $portExists = ($checkResult->fetch_assoc()['cnt'] ?? 0) > 0;
+                    $checkStmt->close();
+                }
+
+                if ($portExists) {
+                    $matched_macs[] = $mac;
+                } else {
+                    $unmatched_macs[] = $mac;
+                }
+
                 // Update ports table (same as Port Edit uses)
                 // Update ip and connection_info columns
                 $updateStmt = $conn->prepare("
@@ -551,12 +573,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 if ($updateStmt) {
                     $updateStmt->bind_param('sss', $ip, $hostname, $macNormalized);
                     $updateStmt->execute();
-                    if ($updateStmt->affected_rows > 0) {
-                        $matched_macs[] = $mac;
-                        $updated_count += $updateStmt->affected_rows;
-                    } else {
-                        $unmatched_macs[] = $mac;
-                    }
+                    $updated_count += $updateStmt->affected_rows;
                     $updateStmt->close();
                 }
             }
