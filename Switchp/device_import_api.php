@@ -525,7 +525,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             }
             
             $updated_count = 0;
-            $matched_macs = [];
+            $updated_macs = [];
+            $already_current_macs = [];
             $unmatched_macs = [];
             
             // For each device, find and update matching ports
@@ -554,7 +555,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 }
 
                 if ($portExists) {
-                    $matched_macs[] = $mac;
+                    // tracked after update below
                 } else {
                     $unmatched_macs[] = $mac;
                 }
@@ -573,7 +574,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 if ($updateStmt) {
                     $updateStmt->bind_param('sss', $ip, $hostname, $macNormalized);
                     $updateStmt->execute();
-                    $updated_count += $updateStmt->affected_rows;
+                    $rowsAffected = $updateStmt->affected_rows;
+                    if ($portExists) {
+                        if ($rowsAffected > 0) {
+                            $updated_macs[] = $mac;
+                            $updated_count += $rowsAffected;
+                        } else {
+                            $already_current_macs[] = $mac;
+                        }
+                    }
                     $updateStmt->close();
                 }
             }
@@ -584,7 +593,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 'success' => true,
                 'updated_count' => $updated_count,
                 'message' => "$updated_count port description(s) updated with Device Import data",
-                'matched_macs' => array_values(array_unique($matched_macs)),
+                'updated_macs' => array_values(array_unique($updated_macs)),
+                'already_current_macs' => array_values(array_unique($already_current_macs)),
+                'matched_macs' => array_values(array_unique(array_merge($updated_macs, $already_current_macs))),
                 'unmatched_macs' => array_values(array_unique($unmatched_macs))
             ]);
         } catch (Exception $e) {

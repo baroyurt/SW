@@ -1,5 +1,35 @@
 <!-- Port Alarms Component - Embedded in Index -->
 <style>
+
+/* Toast notifications for alarms component */
+#alarmToastContainer {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+.alarm-toast {
+    padding: 14px 20px;
+    border-radius: 10px;
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    max-width: 380px;
+    pointer-events: auto;
+    animation: alarmToastIn 0.3s ease;
+}
+.alarm-toast.success { background: rgba(16,185,129,0.95); border-left: 4px solid #059669; }
+.alarm-toast.error   { background: rgba(239,68,68,0.95);  border-left: 4px solid #dc2626; }
+.alarm-toast.warning { background: rgba(245,158,11,0.95); border-left: 4px solid #d97706; }
+.alarm-toast.info    { background: rgba(59,130,246,0.95);  border-left: 4px solid #2563eb; }
+@keyframes alarmToastIn  { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes alarmToastOut { from { transform: translateX(0);    opacity: 1; } to { transform: translateX(110%); opacity: 0; } }
+
 .alarms-section {
     background: var(--dark-light);
     border-radius: 15px;
@@ -365,6 +395,8 @@
 }
 </style>
 
+<div id="alarmToastContainer"></div>
+
 <div class="alarms-section" id="alarmsSection">
     <div class="alarms-header">
         <div>
@@ -478,10 +510,24 @@
             <span class="modal-close" onclick="closeDeviceRegistryModal()">&times;</span>
         </div>
         <p style="color: var(--text-light); margin-bottom: 15px;">Bu MAC Device Import listesinde mevcut. Bilgiler aşağıdadır:</p>
-        <div id="deviceRegistryInfo" style="background: rgba(16,185,129,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;"></div>
+        <div id="deviceRegistryInfo" style="background: rgba(16,185,129,0.1); padding: 15px; border-radius: 8px; margin-bottom: 15px;"></div>
+        <!-- Inline edit fields (hidden by default) -->
+        <div id="deviceRegistryEdit" style="display:none; margin-bottom: 15px;">
+            <div class="form-group" style="margin-bottom:12px;">
+                <label class="form-label">IP Adresi</label>
+                <input type="text" id="drEditIp" class="form-input" placeholder="Örn: 192.168.1.100">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label">Cihaz Adı (Hostname)</label>
+                <input type="text" id="drEditHostname" class="form-input" placeholder="Örn: TEST-PC-01">
+            </div>
+        </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end;">
             <button class="alarm-btn" onclick="closeDeviceRegistryModal()" style="background: var(--border);">
                 <i class="fas fa-times"></i> İptal
+            </button>
+            <button class="alarm-btn" id="drEditBtn" style="background: var(--primary); color: white;" onclick="toggleDeviceRegistryEdit()">
+                <i class="fas fa-edit"></i> Düzenle
             </button>
             <button class="alarm-btn" style="background: var(--success); color: white;" onclick="confirmDeviceRegistry()">
                 <i class="fas fa-save"></i> Onayla ve Kaydet
@@ -676,10 +722,11 @@ function displayAlarms(alarms) {
                                 onclick="startMacWorkflow(${alarm.id}, '${alarm.new_value}', ${alarm.device_id || 0}, ${alarm.port_number || 0}, '${alarm.device_name || ''}', '${alarm.device_ip || ''}', '${alarm.old_value || ''}')">
                                 <i class="fas fa-exchange-alt"></i> MAC İşle
                             </button>
-                        ` : ''}
+                        ` : `
                         <button class="alarm-btn btn-acknowledge" onclick="showAcknowledgeModal(${alarm.id})">
                             <i class="fas fa-check"></i> Bilgi Dahilinde Kapat
                         </button>
+                        `}
                         <button class="alarm-btn btn-details" onclick="navigateToDevice('${alarm.device_name}', ${alarm.port_number})">
                             <i class="fas fa-external-link-alt"></i> View Port
                         </button>
@@ -785,15 +832,17 @@ async function checkMacInRegistry(mac) {
         const data = await resp.json();
 
         if (data.success && data.found) {
-            // Show device info popup
+            // Show device info popup (only name and IP — no MAC)
             const d = data.device;
             let html = '';
             if (d.device_name) html += `<p><strong>Cihaz Adı:</strong> ${d.device_name}</p>`;
-            if (d.ip_address)  html += `<p><strong>IP:</strong> ${d.ip_address}</p>`;
-            if (d.location)    html += `<p><strong>Lokasyon:</strong> ${d.location}</p>`;
-            if (d.notes)       html += `<p><strong>Açıklama:</strong> ${d.notes}</p>`;
-            if (d.department)  html += `<p><strong>Departman:</strong> ${d.department}</p>`;
+            if (d.ip_address)  html += `<p style="margin-top:6px;"><strong>IP:</strong> ${d.ip_address}</p>`;
             document.getElementById('deviceRegistryInfo').innerHTML = html || '<p>Kayıt bulundu.</p>';
+            // Pre-fill edit fields with current values
+            document.getElementById('drEditIp').value       = d.ip_address  || '';
+            document.getElementById('drEditHostname').value = d.device_name || '';
+            document.getElementById('deviceRegistryEdit').style.display = 'none';
+            document.getElementById('drEditBtn').innerHTML  = '<i class="fas fa-edit"></i> Düzenle';
             macWorkflowData.registryDevice = d;
             document.getElementById('deviceRegistryModal').classList.add('show');
         } else {
@@ -847,8 +896,25 @@ function closeDeviceRegistryModal() {
     document.getElementById('deviceRegistryModal').classList.remove('show');
 }
 
+function toggleDeviceRegistryEdit() {
+    const editDiv = document.getElementById('deviceRegistryEdit');
+    const btn     = document.getElementById('drEditBtn');
+    if (editDiv.style.display === 'none') {
+        editDiv.style.display = 'block';
+        btn.innerHTML = '<i class="fas fa-eye"></i> Gizle';
+    } else {
+        editDiv.style.display = 'none';
+        btn.innerHTML = '<i class="fas fa-edit"></i> Düzenle';
+    }
+}
+
 async function confirmDeviceRegistry() {
     const { alarmId, newMac, deviceId, portNumber, registryDevice } = macWorkflowData;
+    // Use edited values if the edit panel is open, otherwise use registry values
+    const editDiv    = document.getElementById('deviceRegistryEdit');
+    const useEdited  = editDiv.style.display !== 'none';
+    const ip         = useEdited ? document.getElementById('drEditIp').value.trim()       : (registryDevice ? registryDevice.ip_address  : '');
+    const deviceName = useEdited ? document.getElementById('drEditHostname').value.trim() : (registryDevice ? registryDevice.device_name : '');
     closeDeviceRegistryModal();
     try {
         const resp = await fetch('port_change_api.php?action=register_device_for_alarm', {
@@ -859,10 +925,10 @@ async function confirmDeviceRegistry() {
                 mac_address: newMac,
                 device_id:   deviceId,
                 port_number: portNumber,
-                device_name: registryDevice ? registryDevice.device_name : '',
-                ip_address:  registryDevice ? registryDevice.ip_address  : '',
-                location:    registryDevice ? registryDevice.location    : '',
-                description: registryDevice ? registryDevice.notes       : ''
+                device_name: deviceName,
+                ip_address:  ip,
+                location:    registryDevice ? registryDevice.location : '',
+                description: registryDevice ? registryDevice.notes    : ''
             })
         });
         const data = await resp.json();
@@ -965,7 +1031,7 @@ async function bulkAcknowledge() {
         return;
     }
     
-    if (!confirm(`Acknowledge ${selectedAlarms.size} alarm(s)? This will whitelist all selected MAC+Port combinations.`)) {
+    if (!window.confirm(`Acknowledge ${selectedAlarms.size} alarm(s)? This will whitelist all selected MAC+Port combinations.`)) {
         return;
     }
     
@@ -1034,15 +1100,16 @@ function navigateToDevice(deviceName, portNumber) {
 }
 
 function showNotification(message, type = 'info') {
-    // You can implement a toast notification system here
-    // For now, using alert
-    if (type === 'error') {
-        alert('❌ ' + message);
-    } else if (type === 'success') {
-        alert('✅ ' + message);
-    } else {
-        alert('ℹ️ ' + message);
-    }
+    const container = document.getElementById('alarmToastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'alarm-toast ' + type;
+    const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
+    toast.textContent = icon + ' ' + message;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.style.animation = 'alarmToastOut 0.3s ease forwards';
+        setTimeout(() => toast.remove(), 310);
+    }, 4500);
 }
 
 function showError(message) {
