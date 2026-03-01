@@ -19,6 +19,9 @@ from vendors.base import PortInfo, DeviceInfo
 from models.database import DeviceStatus, PortStatus, SNMPDevice
 from utils.logger import DeviceLoggerAdapter
 
+# OID constants used directly in the polling engine
+_OID_DOT1Q_PVID = '1.3.6.1.2.1.17.7.1.4.5.1.1'  # dot1qPvid (ifIndex → VLAN ID)
+
 
 class DevicePoller:
     """Polls a single device and collects SNMP data."""
@@ -194,15 +197,51 @@ class DevicePoller:
     def _poll_mac_table(self) -> Dict[int, List[str]]:
         """Poll MAC address table."""
         try:
+            # For Cisco IOS-XE mappers that support per-VLAN context MAC collection
+            # (C9200L / C9300L), prefer that method — it yields real MACs whereas
+            # the empty-context dot1d walk returns nothing on these firmware versions.
+            if hasattr(self.vendor_mapper, 'collect_mac_with_vlan_contexts'):
+                # Gather unique VLANs from already-polled port data so we only
+                # query the contexts that are actually in use.
+                active_vlans: List[int] = [1]  # always include VLAN 1
+                try:
+                    # vendor_mapper._if_to_port is populated by parse_port_info;
+                    # PVID data is in the mapper's internal pvid/cisco_vlan maps.
+                    # We re-walk the port list indirectly through a fresh PVID
+                    # query or fall back to querying the full range.
+                    pvid_results = self.snmp_client.get_bulk(
+                        _OID_DOT1Q_PVID,  # dot1qPvid
+                        self.snmp_config.max_bulk_size
+                    )
+                    seen_vlans = {1}
+                    for oid, val in pvid_results:
+                        try:
+                            v = int(str(val))
+                            if 1 <= v <= 4094:
+                                seen_vlans.add(v)
+                        except Exception:
+                            pass
+                    active_vlans = sorted(seen_vlans)
+                except Exception:
+                    pass  # fall back to default [1]
+
+                mac_table = self.vendor_mapper.collect_mac_with_vlan_contexts(
+                    self.snmp_client, active_vlans
+                )
+                if mac_table:
+                    return mac_table
+                # If VLAN-context walk returned nothing, fall through to
+                # the standard walk (backward-compatible).
+
             oid_prefixes = self.vendor_mapper.get_mac_table_oids()
-            
+
             # Walk MAC table OIDs
             snmp_data = {}
             for oid_prefix in oid_prefixes:
                 results = self.snmp_client.get_bulk(oid_prefix, self.snmp_config.max_bulk_size)
                 for oid, value in results:
                     snmp_data[oid] = value
-            
+
             # Parse MAC table
             mac_table = self.vendor_mapper.parse_mac_table(snmp_data)
             return mac_table

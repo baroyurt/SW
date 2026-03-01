@@ -77,8 +77,10 @@ class SNMPSession:
         )
         self.transport = UdpTransportTarget((ip, port), timeout=TIMEOUT, retries=RETRIES)
     
-    def _ctx(self, context: str = ""):
-        return ContextData(contextName=context)
+    def _ctx(self, context = ""):
+        if isinstance(context, bytes):
+            return ContextData(contextName=context)
+        return ContextData(contextName=context.encode() if context else b"")
     
     def get(self, oid: str) -> Optional[Any]:
         """SNMP GET"""
@@ -95,11 +97,22 @@ class SNMPSession:
             return None
     
     def walk(self, oid: str) -> List[tuple]:
-        """SNMP WALK"""
+        """SNMP WALK (empty/default context)"""
+        return self.walk_with_context(oid, "")
+    
+    def walk_with_context(self, oid: str, context: str) -> List[tuple]:
+        """SNMP WALK with explicit SNMPv3 context name.
+
+        Use context='vlan-N' to access per-VLAN MAC tables on Cisco IOS-XE.
+        """
         results = []
         try:
+            # Use fresh SnmpEngine per call to avoid OID cache issues
+            from pysnmp.hlapi import SnmpEngine as _SE, UdpTransportTarget as _UT
+            engine    = _SE()
+            transport = _UT((self.ip, self.port), timeout=TIMEOUT, retries=RETRIES)
             for errInd, errStat, _, varBinds in nextCmd(
-                self.engine, self.auth, self.transport, self._ctx(""),
+                engine, self.auth, transport, self._ctx(context),
                 ObjectType(ObjectIdentity(oid)),
                 lexicographicMode=False
             ):
@@ -299,98 +312,130 @@ def collect_vlan_info(session: SNMPSession) -> dict:
 
 # ─── MAC ADRESLERİ TOPLAMA ─────────────────────────────────────────────────
 
-def collect_mac_addresses(session: SNMPSession, phys_indices: List[int]) -> Dict[int, List[str]]:
-    """MAC adreslerini topla - sadece fiziksel portlar için"""
+def collect_mac_addresses(session: SNMPSession, phys_indices: List[int],
+                          active_vlans: Optional[List[int]] = None) -> Dict[int, List[str]]:
+    """MAC adreslerini topla.
+
+    C9300L (IOS-XE) icin once per-VLAN SNMPv3 context ile dener ('vlan-N').
+    Bu basarisiz olursa global context ile standart yontemlere doner.
+    """
     print("  [3] MAC adresleri toplanıyor...")
-    
+
+    phys_set = set(phys_indices)
     ifindex_macs: Dict[int, Set[str]] = {}
-    
-    # Bridge port mapping
-    bp_to_if = {}
+
+    # 1. Per-VLAN context yontemi (C9300L icin birincil yol)
+    if active_vlans is None:
+        active_vlans = [1]
+
+    vlan_total = 0
+    for vlan_id in active_vlans:
+        ctx = f"vlan-{vlan_id}"
+
+        bp_to_if: Dict[int, int] = {}
+        for oid, val in session.walk_with_context(OID_BRIDGE_PORT_IF, ctx):
+            if OID_BRIDGE_PORT_IF + '.' not in oid:
+                continue
+            try:
+                bp = int(oid.split('.')[-1])
+                if_idx = val_to_int(val)
+                if if_idx and if_idx in phys_set:
+                    bp_to_if[bp] = if_idx
+            except Exception:
+                pass
+
+        if not bp_to_if:
+            continue
+
+        for oid, val in session.walk_with_context(OID_FDB_PORT, ctx):
+            if OID_FDB_PORT + '.' not in oid:
+                continue
+            try:
+                mac = oid_to_mac(oid)
+                bp  = val_to_int(val)
+                if mac and bp and bp in bp_to_if:
+                    if_idx = bp_to_if[bp]
+                    ifindex_macs.setdefault(if_idx, set()).add(mac)
+                    vlan_total += 1
+            except Exception:
+                pass
+
+    if vlan_total > 0:
+        print(f"     VLAN-context dot1dTpFdb: {vlan_total} MAC")
+
+    # 2. Global context - standart yontemler (fallback / ek veriler)
+    bp_to_if_global: Dict[int, int] = {}
     for oid, val in session.walk(OID_BRIDGE_PORT_IF):
         try:
             bp = int(oid.split('.')[-1])
             if_idx = val_to_int(val)
-            if if_idx and if_idx in phys_indices:
-                bp_to_if[bp] = if_idx
+            if if_idx and if_idx in phys_set:
+                bp_to_if_global[bp] = if_idx
         except Exception:
             pass
-    
-    print(f"     Bridge port mapping: {len(bp_to_if)} kayıt")
-    
-    # dot1dTpFdb'den MAC'leri topla
+
     fdb_count = 0
     for oid, val in session.walk(OID_FDB_PORT):
         try:
             mac = oid_to_mac(oid)
-            bp = val_to_int(val)
-            
-            if mac and bp and bp in bp_to_if:
-                if_idx = bp_to_if[bp]
-                if if_idx in phys_indices:
-                    if if_idx not in ifindex_macs:
-                        ifindex_macs[if_idx] = set()
-                    ifindex_macs[if_idx].add(mac)
-                    fdb_count += 1
+            bp  = val_to_int(val)
+            if mac and bp and bp in bp_to_if_global:
+                if_idx = bp_to_if_global[bp]
+                ifindex_macs.setdefault(if_idx, set()).add(mac)
+                fdb_count += 1
         except Exception:
             pass
-    
-    print(f"     dot1dTpFdb: {fdb_count} MAC")
-    
-    # dot1qTpFdbPort'dan MAC'leri topla
+
+    if fdb_count:
+        print(f"     dot1dTpFdb (global): {fdb_count} MAC")
+
     qbridge_count = 0
     for oid, val in session.walk(OID_DOT1Q_FDB_PORT):
         try:
-            mac = oid_to_mac(oid)
+            mac    = oid_to_mac(oid)
             if_idx = val_to_int(val)
-            
-            if mac and if_idx and if_idx in phys_indices:
-                if if_idx not in ifindex_macs:
-                    ifindex_macs[if_idx] = set()
-                ifindex_macs[if_idx].add(mac)
+            if mac and if_idx and if_idx in phys_set:
+                ifindex_macs.setdefault(if_idx, set()).add(mac)
                 qbridge_count += 1
         except Exception:
             pass
-    
-    if qbridge_count > 0:
+
+    if qbridge_count:
         print(f"     dot1qTpFdb: +{qbridge_count} MAC")
-    
-    # CISCO MAC'leri topla
+
     cisco_count = 0
     for oid, val in session.walk(OID_CISCO_MAC_PORT):
         try:
-            mac = oid_to_mac(oid)
+            mac    = oid_to_mac(oid)
             if_idx = val_to_int(val)
-            
-            if mac and if_idx and if_idx in phys_indices:
-                if if_idx not in ifindex_macs:
-                    ifindex_macs[if_idx] = set()
-                ifindex_macs[if_idx].add(mac)
+            if mac and if_idx and if_idx in phys_set:
+                ifindex_macs.setdefault(if_idx, set()).add(mac)
                 cisco_count += 1
         except Exception:
             pass
-    
-    if cisco_count > 0:
+
+    if cisco_count:
         print(f"     CISCO MAC: +{cisco_count} MAC")
-    
-    # Sonuçları düzenle
-    result = {}
+
+    result: Dict[int, List[str]] = {}
     total_macs = 0
-    
+
     for idx in sorted(phys_indices):
         if idx in ifindex_macs and ifindex_macs[idx]:
             macs = sorted(ifindex_macs[idx])[:5]
             result[idx] = macs
             total_macs += len(macs)
-    
+
     if total_macs == 0:
-        print("\n     ! UYARI: Hiç MAC adresi bulunamadı")
-        print("       Sebepler:")
-        print("       - Portlarda trafik yok (MAC tablosu boş)")
-        print("       - SNMP yetkileri yetersiz")
-        print("       - Farklı SNMP context gerekebilir\n")
-    
+        print("\n     ! UYARI: Hic MAC adresi bulunamadi")
+        print("       C9300L dot1dTpFdb VLAN-context walk yanit vermedi.")
+        print("       Olasi sebepler:")
+        print("       - SNMP yetkileri MAC tablosuna izin vermiyor")
+        print("       - Portlarda trafik yok (MAC tablosu bos)")
+        print("       - 'snmp-server enable traps mac-notification' kapali\n")
+
     return result
+
 
 # ─── PORT DURUMU ve VLAN BELİRLEME ──────────────────────────────────────────
 
@@ -497,9 +542,13 @@ def main():
     
     # VLAN bilgileri
     vlan_info = collect_vlan_info(session)
-    
+
+    # Aktif VLAN listesi - MAC collection için VLAN context gerekiyor
+    active_vlans = sorted({1} | {v for v in vlan_info['pvid'].values() if v and v > 0}
+                            | {v for v in vlan_info['cisco_vlan'].values() if v and v > 0})
+
     # MAC adresleri
-    mac_map = collect_mac_addresses(session, if_info['phys_indices'])
+    mac_map = collect_mac_addresses(session, if_info['phys_indices'], active_vlans)
     
     # Tablo çıktısı
     print("\n" + "="*90)

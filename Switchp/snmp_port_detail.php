@@ -99,9 +99,21 @@ try {
     $stmt->execute();
     $sw = $stmt->get_result()->fetch_assoc();
 
-    if (!$sw || empty($sw['ip_address'])) {
-        echo json_encode(['success'=>false,'error'=>'Bu switch için SNMP yapılandırması yok']);
+    // When snmp_devices has no row, fall back to config.yml credentials.
+    // This handles the case where the switch was manually added to the UI
+    // before the Python worker ran (so snmp_devices is empty for this switch).
+    if (!$sw) {
+        echo json_encode(['success'=>false,'error'=>'Switch bulunamadı']);
         exit;
+    }
+    if (empty($sw['ip_address'])) {
+        $creds = getSnmpCredsFromConfig($sw['ip'] ?? '');
+        if ($creds) {
+            $sw = array_merge($sw, $creds);
+        } else {
+            echo json_encode(['success'=>false,'error'=>'Bu switch için SNMP yapılandırması yok']);
+            exit;
+        }
     }
 
     if (!extension_loaded('snmp')) {

@@ -425,3 +425,98 @@ class CiscoC9200Mapper(VendorOIDMapper):
         result: Dict[int, List[str]] = {p: list(macs) for p, macs in result_sets.items()}
         _log.debug('C9200 MAC table (dot1d only): %d ports with MACs', len(result))
         return result
+
+    def collect_mac_with_vlan_contexts(
+        self,
+        snmp_client: Any,
+        active_vlans: Optional[List[int]] = None,
+    ) -> Dict[int, List[str]]:
+        """Collect MAC addresses using per-VLAN SNMPv3 contexts.
+
+        Cisco IOS-XE (C9200L / C9300L) puts the dot1d Bridge FDB behind a
+        per-VLAN SNMP context (``vlan-<id>``).  A plain walk with the empty
+        context returns nothing.  This method walks dot1dTpFdbPort and
+        dot1dBasePortIfIndex for each active VLAN and merges the results.
+
+        Args:
+            snmp_client: SNMPClient instance with get_bulk_with_context().
+            active_vlans: VLANs to query.  If None / empty, defaults to
+                          all VLANs seen during parse_port_info() plus VLAN 1.
+
+        Returns:
+            Dict mapping sequential port_number → list of MAC strings.
+        """
+        if not self._if_to_port:
+            _log.warning('collect_mac_with_vlan_contexts called before parse_port_info')
+            return {}
+
+        # Build the list of VLANs to probe
+        if not active_vlans:
+            # Collect unique VLANs from the port data built by parse_port_info.
+            # _if_to_port maps ifIndex → portNum; we need vlan data.
+            # Use a reasonable small set as default.
+            active_vlans = [1]
+
+        result_sets: Dict[int, set] = {}
+        total_macs = 0
+
+        for vlan_id in active_vlans:
+            ctx = f"vlan-{vlan_id}"
+
+            # bridge-port → ifIndex mapping for this VLAN context
+            bp_to_if: Dict[int, int] = {}
+            for oid, val in snmp_client.get_bulk_with_context(self.OID_DOT1D_BASE_PORT, ctx):
+                if self.OID_DOT1D_BASE_PORT + '.' not in oid:
+                    continue
+                try:
+                    bp = int(oid.split('.')[-1])
+                    if_idx = self._to_int(val)
+                    if if_idx and if_idx in self._if_to_port:
+                        bp_to_if[bp] = if_idx
+                except Exception:
+                    pass
+
+            if not bp_to_if:
+                continue  # No ports in this VLAN context — skip
+
+            # dot1dTpFdbStatus (filter: status==3 learned)
+            fdb_status: Dict[str, int] = {}
+            for oid, val in snmp_client.get_bulk_with_context(self.OID_DOT1D_TP_FDB_STATUS, ctx):
+                if self.OID_DOT1D_TP_FDB_STATUS + '.' not in oid:
+                    continue
+                try:
+                    mac_parts = oid.split('.')[-6:]
+                    mac = ':'.join(f'{int(x):02x}' for x in mac_parts)
+                    fdb_status[mac] = self._to_int(val) or 0
+                except Exception:
+                    pass
+
+            has_status = bool(fdb_status)
+
+            # dot1dTpFdbPort → bridge-port value
+            vlan_count = 0
+            for oid, val in snmp_client.get_bulk_with_context(self.OID_DOT1D_TP_FDB_PORT, ctx):
+                if self.OID_DOT1D_TP_FDB_PORT + '.' not in oid:
+                    continue
+                try:
+                    mac_parts = oid.split('.')[-6:]
+                    mac = ':'.join(f'{int(x):02x}' for x in mac_parts)
+                    bp = self._to_int(val)
+                    status = fdb_status.get(mac)
+                    if bp and (not has_status or status == 3) and bp in bp_to_if:
+                        if_idx = bp_to_if[bp]
+                        port_num = self._if_to_port.get(if_idx)
+                        if port_num is not None:
+                            result_sets.setdefault(port_num, set()).add(mac)
+                            vlan_count += 1
+                except Exception:
+                    pass
+
+            if vlan_count:
+                _log.debug('VLAN %d context: %d MACs found', vlan_id, vlan_count)
+                total_macs += vlan_count
+
+        result: Dict[int, List[str]] = {p: list(macs) for p, macs in result_sets.items()}
+        _log.info('C9200/C9300 VLAN-context MAC table: %d ports with MACs (%d total)',
+                  len(result), total_macs)
+        return result

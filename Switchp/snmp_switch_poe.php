@@ -35,9 +35,18 @@ try {
     $stmt->execute();
     $sw = $stmt->get_result()->fetch_assoc();
 
-    if (!$sw || empty($sw['ip_address'])) {
-        echo json_encode(['success' => false, 'error' => 'SNMP yapılandırması yok']);
+    if (!$sw) {
+        echo json_encode(['success' => false, 'error' => 'Switch bulunamadı']);
         exit;
+    }
+    if (empty($sw['ip_address'])) {
+        $creds = getSnmpCredsFromConfig($sw['ip'] ?? '');
+        if ($creds) {
+            $sw = array_merge($sw, $creds);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'SNMP yapılandırması yok']);
+            exit;
+        }
     }
 
     if (!extension_loaded('snmp')) {
