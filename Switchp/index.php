@@ -6535,7 +6535,7 @@ if (isHub) {
                         // MAC'i temizleyerek ara (noktalama işaretlerini kaldır)
                         const cleanMac = conn.mac.replace(/[^a-fA-F0-9]/g, '').toLowerCase();
                         const cleanQuery = query.replace(/[^a-fA-F0-9]/g, '').toLowerCase();
-                        if (cleanMac.includes(cleanQuery)) {
+                        if (cleanQuery.length >= 2 && cleanMac.includes(cleanQuery)) {
                             found = true;
                         }
                     }
@@ -6572,7 +6572,7 @@ if (isHub) {
                                 if (connItem.mac) {
                                     const cleanConnMac = connItem.mac.replace(/[^a-fA-F0-9]/g, '').toLowerCase();
                                     const cleanQuery = query.replace(/[^a-fA-F0-9]/g, '').toLowerCase();
-                                    if (cleanConnMac.includes(cleanQuery)) {
+                                    if (cleanQuery.length >= 2 && cleanConnMac.includes(cleanQuery)) {
                                         found = true;
                                     }
                                 }
