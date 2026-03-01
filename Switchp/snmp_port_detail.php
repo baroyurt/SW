@@ -205,9 +205,7 @@ try {
     $snmpFailed = empty($ifDescr) && $ifMtu === 0;
     if ($snmpFailed) {
         $dbStmt = $conn->prepare("
-            SELECT psd.port_name, psd.port_alias, psd.admin_status, psd.oper_status,
-                   psd.port_speed, psd.port_mtu, psd.mac_address, psd.vlan_id,
-                   psd.in_octets, psd.out_octets, psd.in_errors, psd.out_errors
+            SELECT psd.*
             FROM port_status_data psd
             JOIN snmp_devices sd ON psd.device_id = sd.id
             JOIN switches s ON (s.name = sd.name OR s.ip = sd.ip_address)
@@ -231,10 +229,10 @@ try {
             $ifAdminStatus = ($dbRow['admin_status'] === 'up') ? 1 : 2;
             $ifOperStatus  = ($dbRow['oper_status']  === 'up') ? 1 : 2;
             $dot1qPvid     = intval($dbRow['vlan_id'] ?? 1);
-            $inOctets      = intval($dbRow['in_octets']  ?? 0);
-            $outOctets     = intval($dbRow['out_octets'] ?? 0);
-            $inErrors      = intval($dbRow['in_errors']  ?? 0);
-            $outErrors     = intval($dbRow['out_errors'] ?? 0);
+            $inOctets      = intval($dbRow['in_octets']  ?? $dbRow['bytes_in']  ?? 0);
+            $outOctets     = intval($dbRow['out_octets'] ?? $dbRow['bytes_out'] ?? 0);
+            $inErrors      = intval($dbRow['in_errors']  ?? $dbRow['errors_in'] ?? 0);
+            $outErrors     = intval($dbRow['out_errors'] ?? $dbRow['errors_out'] ?? 0);
         }
     }
 

@@ -992,6 +992,48 @@ foreach ($unusedColumns as $col) {
     ];
 }
 
+/* 50) Rename old Python-model column names in port_status_data to canonical PHP names.
+ *  When the Python SNMP worker ran Base.metadata.create_all() before any PHP migration
+ *  it created the table with bytes_in/bytes_out/errors_in/errors_out instead of the
+ *  PHP-canonical in_octets/out_octets/in_errors/out_errors. Rename them so both the
+ *  Python worker and all PHP fallback queries can use the same column names.
+ */
+$_portStatRenames = [
+    'bytes_in'   => ['new' => 'in_octets',  'type' => 'BIGINT DEFAULT 0'],
+    'bytes_out'  => ['new' => 'out_octets', 'type' => 'BIGINT DEFAULT 0'],
+    'errors_in'  => ['new' => 'in_errors',  'type' => 'BIGINT DEFAULT 0'],
+    'errors_out' => ['new' => 'out_errors', 'type' => 'BIGINT DEFAULT 0'],
+];
+foreach ($_portStatRenames as $_oldCol => $_info) {
+    $_newCol = $_info['new'];
+    $_type   = $_info['type'];
+    $steps[] = [
+        'name'  => "port_status_data: rename {$_oldCol} → {$_newCol}",
+        'check' => function($c) use ($_oldCol) {
+            return !columnExists($c, 'port_status_data', $_oldCol);
+        },
+        'apply' => function($c) use ($_oldCol, $_newCol, $_type) {
+            return $c->query("ALTER TABLE port_status_data CHANGE COLUMN `{$_oldCol}` `{$_newCol}` {$_type}");
+        }
+    ];
+}
+
+/* 51) Ensure in_discards / out_discards exist in port_status_data.
+ *  These are in the PHP CREATE TABLE DDL but may be absent from databases
+ *  created by the Python migration (which did not include them).
+ */
+foreach (['in_discards', 'out_discards'] as $_discardCol) {
+    $steps[] = [
+        'name'  => "port_status_data: add {$_discardCol}",
+        'check' => function($c) use ($_discardCol) {
+            return columnExists($c, 'port_status_data', $_discardCol);
+        },
+        'apply' => function($c) use ($_discardCol) {
+            return $c->query("ALTER TABLE port_status_data ADD COLUMN `{$_discardCol}` BIGINT DEFAULT 0");
+        }
+    ];
+}
+
 //
 // Run steps
 //
