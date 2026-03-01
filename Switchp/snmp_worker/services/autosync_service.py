@@ -110,12 +110,21 @@ class AutoSyncService:
             session: Database session
             device: SNMP device to sync
         """
-        # Check if switch exists in main table
+        # Check if switch exists in main table — look up by IP first, then by name.
+        # Searching by name as a fallback prevents a duplicate-key IntegrityError
+        # when the switch was already added (manually or by a previous autosync run)
+        # with a different IP address stored in the switches table.
         result = session.execute(
             text("SELECT id FROM switches WHERE ip = :ip"),
             {"ip": device.ip_address}
         ).fetchone()
-        
+
+        if result is None:
+            result = session.execute(
+                text("SELECT id FROM switches WHERE name = :name"),
+                {"name": device.name}
+            ).fetchone()
+
         if result:
             # Update existing switch
             switch_id = result[0]
@@ -129,6 +138,7 @@ class AutoSyncService:
                         brand = :brand, 
                         model = :model, 
                         ports = :ports, 
+                        ip = :ip,
                         status = :status
                     WHERE id = :id
                 """),
@@ -137,6 +147,7 @@ class AutoSyncService:
                     "brand": device.vendor,
                     "model": device.model,
                     "ports": device.total_ports,
+                    "ip": device.ip_address,
                     "status": status,
                     "id": switch_id
                 }

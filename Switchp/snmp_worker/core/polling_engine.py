@@ -233,6 +233,23 @@ class DevicePoller:
             poll_result: Poll results dictionary
         """
         with self.db_manager.session_scope() as session:
+            # Build kwargs — include SNMPv3 credentials so snmp_devices table
+            # holds them for LLDP collection and other services (autosync, etc.)
+            device_kwargs = dict(
+                snmp_version=self.device_config.snmp_version,
+                snmp_community=self.device_config.community if self.device_config.snmp_version == '2c' else None,
+                enabled=self.device_config.enabled,
+            )
+            if self.device_config.snmp_version == '3' and self.device_config.snmp_v3:
+                v3 = self.device_config.snmp_v3
+                device_kwargs.update(
+                    snmp_v3_username=v3.get('username'),
+                    snmp_v3_auth_protocol=v3.get('auth_protocol'),
+                    snmp_v3_auth_password=v3.get('auth_password'),
+                    snmp_v3_priv_protocol=v3.get('priv_protocol'),
+                    snmp_v3_priv_password=v3.get('priv_password'),
+                )
+
             # Get or create device
             device = self.db_manager.get_or_create_device(
                 session,
@@ -240,9 +257,7 @@ class DevicePoller:
                 ip_address=self.device_config.ip,
                 vendor=self.device_config.vendor,
                 model=self.device_config.model,
-                snmp_version=self.device_config.snmp_version,
-                snmp_community=self.device_config.community if self.device_config.snmp_version == '2c' else None,
-                enabled=self.device_config.enabled
+                **device_kwargs
             )
             
             # Update device status
