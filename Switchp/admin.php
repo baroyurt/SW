@@ -65,6 +65,21 @@ header("Expires: 0");
             border-right: 1px solid rgba(56, 189, 248, 0.2);
             overflow-y: auto;
             z-index: 1000;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(56, 189, 248, 0.3) transparent;
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.3);
+            border-radius: 2px;
+        }
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: rgba(56, 189, 248, 0.6);
         }
         
         .logo-section {
@@ -129,6 +144,27 @@ header("Expires: 0");
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 1px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+            transition: color 0.2s;
+        }
+        .nav-title:hover { color: var(--text); }
+        .nav-title .nav-chevron {
+            font-size: 10px;
+            transition: transform 0.25s;
+        }
+        .nav-section.collapsed .nav-chevron {
+            transform: rotate(-90deg);
+        }
+        .nav-section-items {
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        .nav-section.collapsed .nav-section-items {
+            max-height: 0 !important;
         }
         
         .nav-item {
@@ -501,15 +537,18 @@ header("Expires: 0");
         </div>
         
         <div class="nav-section">
-            <div class="nav-title">Ana Menü</div>
+            <div class="nav-title" onclick="toggleNavSection(this)">Ana Menü <i class="fas fa-chevron-down nav-chevron"></i></div>
+            <div class="nav-section-items">
             <button class="nav-item active" data-page="dashboard">
                 <i class="fas fa-tachometer-alt"></i>
                 <span>Dashboard</span>
             </button>
+            </div>
         </div>
         
         <div class="nav-section">
-            <div class="nav-title">Yönetim</div>
+            <div class="nav-title" onclick="toggleNavSection(this)">Yönetim <i class="fas fa-chevron-down nav-chevron"></i></div>
+            <div class="nav-section-items">
             <button class="nav-item" data-page="switches">
                 <i class="fas fa-network-wired"></i>
                 <span>Switch Yönetimi</span>
@@ -530,10 +569,12 @@ header("Expires: 0");
                 <i class="fas fa-history"></i>
                 <span>MAC Değişim Geçmişi</span>
             </button>
+            </div>
         </div>
         
         <div class="nav-section">
-            <div class="nav-title">Veri İşlemleri</div>
+            <div class="nav-title" onclick="toggleNavSection(this)">Veri İşlemleri <i class="fas fa-chevron-down nav-chevron"></i></div>
+            <div class="nav-section-items">
             <button class="nav-item" data-page="backup">
                 <i class="fas fa-database"></i>
                 <span>Yedekleme</span>
@@ -550,10 +591,12 @@ header("Expires: 0");
                 <i class="fas fa-history"></i>
                 <span>Geçmiş Yedekler</span>
             </button>
+            </div>
         </div>
         
         <div class="nav-section">
-            <div class="nav-title">SNMP</div>
+            <div class="nav-title" onclick="toggleNavSection(this)">SNMP <i class="fas fa-chevron-down nav-chevron"></i></div>
+            <div class="nav-section-items">
             <button class="nav-item" data-page="snmp">
                 <i class="fas fa-sync-alt"></i>
                 <span>SNMP Senkronizasyon</span>
@@ -562,10 +605,16 @@ header("Expires: 0");
                 <i class="fas fa-cog"></i>
                 <span>SNMP Konfigürasyon</span>
             </button>
+            </div>
         </div>
         
         <div class="nav-section">
-            <div class="nav-title">Kullanıcı</div>
+            <div class="nav-title" onclick="toggleNavSection(this)">Kullanıcı Yönetimi <i class="fas fa-chevron-down nav-chevron"></i></div>
+            <div class="nav-section-items">
+            <button class="nav-item" data-page="users">
+                <i class="fas fa-users-cog"></i>
+                <span>Kullanıcılar</span>
+            </button>
             <button class="nav-item" onclick="window.location.href='index.php'">
                 <i class="fas fa-home"></i>
                 <span>Ana Sayfa</span>
@@ -574,6 +623,7 @@ header("Expires: 0");
                 <i class="fas fa-sign-out-alt"></i>
                 <span>Çıkış Yap</span>
             </button>
+            </div>
         </div>
     </div>
     
@@ -617,7 +667,14 @@ header("Expires: 0");
                         <i class="fas fa-th-large"></i>
                     </div>
                     <div class="stat-value" id="stat-panels">0</div>
-                    <div class="stat-label">Patch Panel</div>
+                    <div class="stat-label">Toplam Panel</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="color: var(--secondary);">
+                        <i class="fas fa-plug"></i>
+                    </div>
+                    <div class="stat-value" id="stat-total-ports">0</div>
+                    <div class="stat-label">Toplam Port</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon" style="color: var(--danger);">
@@ -832,6 +889,19 @@ header("Expires: 0");
                 </iframe>
             </div>
         </div>
+
+        <!-- User Management Section -->
+        <div class="content-section" id="section-users">
+            <div class="card">
+                <h3><i class="fas fa-users-cog"></i> Kullanıcı Yönetimi</h3>
+                <button class="btn btn-primary" onclick="openUserModal()">
+                    <i class="fas fa-user-plus"></i> Yeni Kullanıcı Ekle
+                </button>
+                <div id="users-list" style="margin-top: 20px;">
+                    <p style="color: var(--text-light);">Yükleniyor...</p>
+                </div>
+            </div>
+        </div>
     </div>
     
     <script>
@@ -861,9 +931,14 @@ header("Expires: 0");
                 'history': 'Geçmiş Yedekler',
                 'snmp': 'SNMP Senkronizasyon',
                 'snmp-config': 'SNMP Konfigürasyon',
-                'mac-history': 'MAC Değişim Geçmişi'
+                'mac-history': 'MAC Değişim Geçmişi',
+                'users': 'Kullanıcı Yönetimi'
             };
             document.getElementById('page-title-text').textContent = titles[pageName] || 'Admin Panel';
+
+            // Lazy load
+            if (pageName === 'history') loadBackupHistory();
+            if (pageName === 'users') loadUsers();
         }
         
         // Setup navigation
@@ -872,6 +947,24 @@ header("Expires: 0");
                 const page = item.getAttribute('data-page');
                 switchPage(page);
             });
+        });
+
+        // Collapsible sidebar sections
+        function toggleNavSection(navTitle) {
+            const section = navTitle.closest('.nav-section');
+            const items = section.querySelector('.nav-section-items');
+            if (section.classList.contains('collapsed')) {
+                section.classList.remove('collapsed');
+                items.style.maxHeight = items.scrollHeight + 'px';
+            } else {
+                section.classList.add('collapsed');
+                items.style.maxHeight = items.scrollHeight + 'px'; // set explicit before animating
+                requestAnimationFrame(() => { items.style.maxHeight = '0'; });
+            }
+        }
+        // Initialize nav section heights for transition
+        document.querySelectorAll('.nav-section-items').forEach(items => {
+            items.style.maxHeight = items.scrollHeight + 'px';
         });
         
         // Load dashboard stats
@@ -886,21 +979,17 @@ header("Expires: 0");
                 if (data.racks) {
                     document.getElementById('stat-racks').textContent = data.racks.length;
                 }
-                if (data.patchPanels) {
-                    document.getElementById('stat-panels').textContent = data.patchPanels.length;
+                if (data.stats) {
+                    const totalPanels = (data.stats.total_patch_panels || 0) + (data.stats.total_fiber_panels || 0);
+                    document.getElementById('stat-panels').textContent = totalPanels;
+                    document.getElementById('stat-ports').textContent = data.stats.active_ports || 0;
+                    document.getElementById('stat-total-ports').textContent = data.stats.total_ports || 0;
+                } else {
+                    // fallback
+                    const patchCount = (data.patch_panels || []).length;
+                    const fiberCount = (data.fiber_panels || []).length;
+                    document.getElementById('stat-panels').textContent = patchCount + fiberCount;
                 }
-                
-                // Count active ports
-                let activePorts = 0;
-                if (data.ports) {
-                    // ports is an object with switch IDs as keys
-                    Object.values(data.ports).forEach(switchPorts => {
-                        if (Array.isArray(switchPorts)) {
-                            activePorts += switchPorts.filter(p => p.connected_device || p.panel_port_id).length;
-                        }
-                    });
-                }
-                document.getElementById('stat-ports').textContent = activePorts;
             } catch (error) {
                 console.error('Error loading stats:', error);
             }
@@ -912,27 +1001,58 @@ header("Expires: 0");
             statusDiv.innerHTML = '<p style="color: var(--primary);"><i class="fas fa-spinner fa-spin"></i> Yedek oluşturuluyor...</p>';
             
             try {
-                const response = await fetch('backup.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: 'action=backup'
-                });
+                const backupName = 'Yedek_' + new Date().toISOString().slice(0,19).replace(/[T:]/g, '_').replace(/-/g, '');
+                const response = await fetch(`backup.php?action=create&name=${encodeURIComponent(backupName)}`);
                 
                 const data = await response.json();
                 
                 if (data.success) {
                     statusDiv.innerHTML = `<p style="color: var(--success);"><i class="fas fa-check-circle"></i> ${data.message}</p>`;
                     showToast('Yedekleme başarılı!', 'success');
+                    loadBackupHistory();
                 } else {
-                    statusDiv.innerHTML = `<p style="color: var(--danger);"><i class="fas fa-exclamation-circle"></i> ${data.error}</p>`;
+                    statusDiv.innerHTML = `<p style="color: var(--danger);"><i class="fas fa-exclamation-circle"></i> ${data.error || data.message || 'Yedekleme başarısız'}</p>`;
                     showToast('Yedekleme başarısız!', 'error');
                 }
             } catch (error) {
                 statusDiv.innerHTML = `<p style="color: var(--danger);"><i class="fas fa-exclamation-circle"></i> Hata: ${error.message}</p>`;
                 showToast('Bir hata oluştu!', 'error');
             }
+        }
+        
+        async function loadBackupHistory() {
+            try {
+                const response = await fetch('backup.php?action=list');
+                const data = await response.json();
+                const el = document.getElementById('backups-list');
+                if (!el) return;
+                if (!data.success || !data.backups || !data.backups.length) {
+                    el.innerHTML = '<p style="color:var(--text-light)">Henüz yedek yok.</p>';
+                    return;
+                }
+                el.innerHTML = `<table><thead><tr>
+                    <th>Ad</th><th>Tarih</th><th>Boyut</th><th>İşlem</th>
+                </tr></thead><tbody>
+                ${data.backups.map(b => `<tr>
+                    <td>${b.name}</td>
+                    <td>${b.timestamp}</td>
+                    <td>${(b.size/1024).toFixed(1)} KB</td>
+                    <td><button class="btn btn-warning-ghost" style="padding:6px 12px;font-size:13px;"
+                        onclick="restoreBackup('${b.file}')">
+                        <i class="fas fa-undo"></i> Geri Yükle</button></td>
+                </tr>`).join('')}
+                </tbody></table>`;
+            } catch(e) { console.error('loadBackupHistory:', e); }
+        }
+        
+        async function restoreBackup(file) {
+            if (!confirm('Bu yedek geri yüklenecek, mevcut veriler silinecek! Emin misiniz?')) return;
+            try {
+                const r = await fetch(`backup.php?action=restore&file=${encodeURIComponent(file)}`);
+                const d = await r.json();
+                if (d.success) { showToast('Yedek geri yüklendi!', 'success'); loadStats(); loadAdminData(); }
+                else showToast(d.error || 'Geri yükleme başarısız', 'error');
+            } catch(e) { showToast('Hata: ' + e.message, 'error'); }
         }
         
         // Export functions
@@ -975,6 +1095,11 @@ header("Expires: 0");
             setTimeout(() => {
                 toast.remove();
             }, 3000);
+        }
+
+        function escapeAttr(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
         
         // Initialize
@@ -1113,6 +1238,45 @@ header("Expires: 0");
                         loadAdminPorts();
                     } else showToast(d.message||'Kaydedilemedi','error');
                 } catch(e) { showToast('Hata: '+e.message,'error'); }
+            });
+
+            document.getElementById('adm-user-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const payload = {
+                    action: 'add',
+                    username: document.getElementById('adm-user-username').value,
+                    full_name: document.getElementById('adm-user-fullname').value,
+                    email: document.getElementById('adm-user-email').value,
+                    role: document.getElementById('adm-user-role').value,
+                    password: document.getElementById('adm-user-password').value
+                };
+                try {
+                    const r = await fetch('user_management_api.php', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+                    const d = await r.json();
+                    if (d.success) {
+                        showToast('Kullanıcı eklendi', 'success');
+                        document.getElementById('adm-user-modal').classList.remove('active');
+                        loadUsers();
+                    } else showToast(d.error || 'Kaydedilemedi', 'error');
+                } catch(e) { showToast('Hata: '+e.message, 'error'); }
+            });
+
+            document.getElementById('adm-cpw-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const payload = {
+                    action: 'change_password',
+                    id: document.getElementById('adm-cpw-user-id').value,
+                    password: document.getElementById('adm-cpw-password').value
+                };
+                if (payload.password.length < 6) { showToast('Şifre en az 6 karakter olmalı', 'error'); return; }
+                try {
+                    const r = await fetch('user_management_api.php', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+                    const d = await r.json();
+                    if (d.success) {
+                        showToast('Şifre güncellendi', 'success');
+                        document.getElementById('adm-cpw-modal').classList.remove('active');
+                    } else showToast(d.error || 'Şifre güncellenemedi', 'error');
+                } catch(e) { showToast('Hata: '+e.message, 'error'); }
             });
         });
 
@@ -1513,6 +1677,68 @@ header("Expires: 0");
                 } else showToast(d.error||'İşlem başarısız','error');
             } catch(e) { showToast('Hata: '+e.message,'error'); }
         }
+
+        // ─── USER MANAGEMENT ─────────────────────────────────────────────
+        async function loadUsers() {
+            const el = document.getElementById('users-list');
+            el.innerHTML = '<p style="color:var(--text-light)">Yükleniyor...</p>';
+            try {
+                const resp = await fetch('user_management_api.php?action=list');
+                const data = await resp.json();
+                if (!data.success) { el.innerHTML = `<p style="color:var(--danger)">${data.error||'Kullanıcılar yüklenemedi'}</p>`; return; }
+                const users = data.users || [];
+                if (!users.length) { el.innerHTML = '<p style="color:var(--text-light)">Henüz kullanıcı yok.</p>'; return; }
+                el.innerHTML = `<table><thead><tr>
+                    <th>Kullanıcı Adı</th><th>Ad Soyad</th><th>E-posta</th><th>Rol</th><th>Durum</th><th>Son Giriş</th><th>İşlem</th>
+                </tr></thead><tbody>
+                ${users.map(u => `<tr>
+                    <td><strong>${u.username}</strong></td>
+                    <td>${u.full_name||''}</td>
+                    <td>${u.email||''}</td>
+                    <td><span style="padding:2px 8px; border-radius:10px; font-size:12px; background:${u.role==='admin'?'rgba(59,130,246,0.2)':'rgba(16,185,129,0.2)'}; color:${u.role==='admin'?'var(--primary)':'var(--success)'};">${u.role==='admin'?'Admin':'Kullanıcı'}</span></td>
+                    <td><span style="color:${u.is_active?'var(--success)':'var(--danger)'}"><i class="fas fa-circle" style="font-size:8px"></i> ${u.is_active?'Aktif':'Pasif'}</span></td>
+                    <td style="font-size:12px">${u.last_login ? new Date(u.last_login).toLocaleString('tr-TR') : '-'}</td>
+                    <td style="white-space:nowrap">
+                        <button class="btn btn-warning-ghost" style="padding:5px 10px;font-size:12px;"
+                            data-uid="${u.id}" data-uname="${escapeAttr(u.username)}"
+                            onclick="openChangePasswordModal(this.dataset.uid, this.dataset.uname)">
+                            <i class="fas fa-key"></i> Şifre
+                        </button>
+                        <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;margin-left:4px;" onclick="toggleUserActive(${u.id}, ${u.is_active?0:1})">
+                            <i class="fas fa-${u.is_active?'ban':'check'}"></i> ${u.is_active?'Pasif Yap':'Aktif Yap'}
+                        </button>
+                    </td>
+                </tr>`).join('')}
+                </tbody></table>`;
+            } catch(e) { el.innerHTML = `<p style="color:var(--danger)">Hata: ${e.message}</p>`; }
+        }
+
+        function openUserModal() {
+            document.getElementById('adm-user-id').value = '';
+            document.getElementById('adm-user-username').value = '';
+            document.getElementById('adm-user-fullname').value = '';
+            document.getElementById('adm-user-email').value = '';
+            document.getElementById('adm-user-role').value = 'user';
+            document.getElementById('adm-user-password').value = '';
+            document.getElementById('adm-user-modal-title').textContent = 'Yeni Kullanıcı Ekle';
+            document.getElementById('adm-user-modal').classList.add('active');
+        }
+
+        function openChangePasswordModal(userId, username) {
+            document.getElementById('adm-cpw-user-id').value = userId;
+            document.getElementById('adm-cpw-title').textContent = `Şifre Değiştir: ${username}`;
+            document.getElementById('adm-cpw-password').value = '';
+            document.getElementById('adm-cpw-modal').classList.add('active');
+        }
+
+        async function toggleUserActive(userId, newActive) {
+            try {
+                const r = await fetch('user_management_api.php', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'toggle_active',id:userId,is_active:newActive})});
+                const d = await r.json();
+                if (d.success) { showToast(newActive?'Kullanıcı aktif edildi':'Kullanıcı pasif yapıldı','success'); loadUsers(); }
+                else showToast(d.error||'İşlem başarısız','error');
+            } catch(e) { showToast('Hata: '+e.message,'error'); }
+        }
     </script>
 
     <!-- ─── MODALS ──────────────────────────────────────────────────────── -->
@@ -1727,6 +1953,59 @@ header("Expires: 0");
     <a href="index.php" class="monitor-btn" title="İzleme Ekranına Dön">
         <i class="fas fa-desktop"></i>
     </a>
+
+    <!-- User Add Modal -->
+    <div class="modal-overlay" id="adm-user-modal" onclick="if(event.target===this)this.classList.remove('active')">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="adm-user-modal-title">Yeni Kullanıcı Ekle</h3>
+                <button class="modal-close" onclick="document.getElementById('adm-user-modal').classList.remove('active')">&times;</button>
+            </div>
+            <form id="adm-user-form">
+                <input type="hidden" id="adm-user-id">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div class="form-group"><label>Kullanıcı Adı *</label>
+                        <input type="text" id="adm-user-username" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--dark); color:var(--text);" required></div>
+                    <div class="form-group"><label>Ad Soyad *</label>
+                        <input type="text" id="adm-user-fullname" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--dark); color:var(--text);" required></div>
+                </div>
+                <div class="form-group"><label>E-posta</label>
+                    <input type="email" id="adm-user-email" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--dark); color:var(--text);"></div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div class="form-group"><label>Rol *</label>
+                        <select id="adm-user-role" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--dark); color:var(--text);">
+                            <option value="user">Kullanıcı</option>
+                            <option value="admin">Admin</option>
+                        </select></div>
+                    <div class="form-group"><label>Şifre *</label>
+                        <input type="password" id="adm-user-password" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--dark); color:var(--text);" required></div>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button type="button" class="btn" style="flex:1; background:var(--border); color:var(--text);" onclick="document.getElementById('adm-user-modal').classList.remove('active')">İptal</button>
+                    <button type="submit" class="btn btn-primary" style="flex:1;"><i class="fas fa-save"></i> Kaydet</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div class="modal-overlay" id="adm-cpw-modal" onclick="if(event.target===this)this.classList.remove('active')">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="adm-cpw-title">Şifre Değiştir</h3>
+                <button class="modal-close" onclick="document.getElementById('adm-cpw-modal').classList.remove('active')">&times;</button>
+            </div>
+            <form id="adm-cpw-form">
+                <input type="hidden" id="adm-cpw-user-id">
+                <div class="form-group"><label>Yeni Şifre *</label>
+                    <input type="password" id="adm-cpw-password" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--dark); color:var(--text);" required placeholder="En az 6 karakter"></div>
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button type="button" class="btn" style="flex:1; background:var(--border); color:var(--text);" onclick="document.getElementById('adm-cpw-modal').classList.remove('active')">İptal</button>
+                    <button type="submit" class="btn btn-primary" style="flex:1;"><i class="fas fa-key"></i> Şifreyi Güncelle</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Excel İçe Aktarma Modal -->
     <div id="excel-import-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;">
