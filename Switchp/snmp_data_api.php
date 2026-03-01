@@ -196,23 +196,51 @@ function syncToSwitches($conn, $auth) {
             // Check if switch exists in main table — first by IP, then by
             // normalized name so that a manually-added "SW31 -RUBY" (spaces)
             // is not duplicated as a separate "SW31-RUBY" SNMP-discovered entry.
-            $stmt = $conn->prepare("SELECT id FROM switches WHERE ip = ?");
+            $stmt = $conn->prepare("SELECT id, rack_id FROM switches WHERE ip = ?");
             $stmt->bind_param("s", $snmpDevice['ip_address']);
             $stmt->execute();
-            $existingSwitch = $stmt->get_result()->fetch_assoc();
+            $ipMatch = $stmt->get_result()->fetch_assoc();
 
-            if (!$existingSwitch) {
-                // Fallback: match by name with spaces removed (normalizes "SW31 -RUBY" == "SW31-RUBY")
-                $stmt2 = $conn->prepare("SELECT id FROM switches WHERE REPLACE(name,' ','') = REPLACE(?,' ','')");
-                $stmt2->bind_param("s", $snmpDevice['name']);
-                $stmt2->execute();
-                $existingSwitch = $stmt2->get_result()->fetch_assoc();
-                // If found by name, also fix the IP so future lookups work
-                if ($existingSwitch) {
-                    $fixIp = $conn->prepare("UPDATE switches SET ip = ? WHERE id = ?");
-                    $fixIp->bind_param("si", $snmpDevice['ip_address'], $existingSwitch['id']);
-                    $fixIp->execute();
-                }
+            // Also look for a normalized-name match (strips spaces from both sides)
+            $stmt2 = $conn->prepare("SELECT id, rack_id FROM switches WHERE REPLACE(name,' ','') = REPLACE(?,' ','')");
+            $stmt2->bind_param("s", $snmpDevice['name']);
+            $stmt2->execute();
+            $nameMatch = $stmt2->get_result()->fetch_assoc();
+
+            if ($ipMatch && $nameMatch && $ipMatch['id'] !== $nameMatch['id']) {
+                // Both exist as different rows → merge: keep the rack-assigned (manually-placed)
+                // one, delete the other. Fall back to keeping the lower id (older = manual).
+                $keeper   = ($nameMatch['rack_id'] && !$ipMatch['rack_id']) ? $nameMatch : $ipMatch;
+                $discard  = ($keeper['id'] === $ipMatch['id'])              ? $nameMatch : $ipMatch;
+
+                // Reassign panel/fiber connections to the keeper
+                $pu = $conn->prepare("UPDATE patch_ports SET connected_switch_id = ? WHERE connected_switch_id = ?");
+                $pu->bind_param("ii", $keeper['id'], $discard['id']); $pu->execute();
+                $fu = $conn->prepare("UPDATE fiber_ports SET connected_switch_id = ? WHERE connected_switch_id = ?");
+                $fu->bind_param("ii", $keeper['id'], $discard['id']); $fu->execute();
+                $su = $conn->prepare("UPDATE snmp_config SET switch_id = ? WHERE switch_id = ?");
+                $su->bind_param("ii", $keeper['id'], $discard['id']); $su->execute();
+
+                // Delete the discarded switch (CASCADE removes its orphan ports)
+                $del = $conn->prepare("DELETE FROM switches WHERE id = ?");
+                $del->bind_param("i", $discard['id']); $del->execute();
+
+                $existingSwitch = $keeper;
+                // Make sure the keeper has the correct IP for future IP-based lookups
+                $fixIp = $conn->prepare("UPDATE switches SET ip = ? WHERE id = ?");
+                $fixIp->bind_param("si", $snmpDevice['ip_address'], $keeper['id']); $fixIp->execute();
+
+            } elseif ($ipMatch) {
+                $existingSwitch = $ipMatch;
+
+            } elseif ($nameMatch) {
+                $existingSwitch = $nameMatch;
+                // Fix missing IP so future syncs use the faster IP lookup
+                $fixIp = $conn->prepare("UPDATE switches SET ip = ? WHERE id = ?");
+                $fixIp->bind_param("si", $snmpDevice['ip_address'], $nameMatch['id']); $fixIp->execute();
+
+            } else {
+                $existingSwitch = null;
             }
 
             if ($existingSwitch) {
