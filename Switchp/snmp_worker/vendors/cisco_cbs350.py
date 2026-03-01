@@ -218,7 +218,7 @@ class CiscoCBS350Mapper(VendorOIDMapper):
 
         # Parse interface descriptions to get port numbers
         for oid, value in snmp_data.items():
-            if self.OID_IF_DESCR in oid and not oid.endswith(self.OID_IF_DESCR):
+            if oid.startswith(self.OID_IF_DESCR + '.'):
                 if_index = int(oid.split('.')[-1])
                 descr = str(value)
                 
@@ -245,54 +245,54 @@ class CiscoCBS350Mapper(VendorOIDMapper):
         
         # Parse interface names
         for oid, value in snmp_data.items():
-            if self.OID_IF_NAME in oid and not oid.endswith(self.OID_IF_NAME):
+            if oid.startswith(self.OID_IF_NAME + '.'):
                 if_index = int(oid.split('.')[-1])
                 if if_index in ports:
                     ports[if_index]['port_name'] = str(value)
         
         # Parse interface aliases (descriptions)
         for oid, value in snmp_data.items():
-            if self.OID_IF_ALIAS in oid and not oid.endswith(self.OID_IF_ALIAS):
+            if oid.startswith(self.OID_IF_ALIAS + '.'):
                 if_index = int(oid.split('.')[-1])
                 if if_index in ports:
                     ports[if_index]['port_alias'] = str(value)
         
         # Parse admin status
         for oid, value in snmp_data.items():
-            if self.OID_IF_ADMIN_STATUS in oid and not oid.endswith(self.OID_IF_ADMIN_STATUS):
+            if oid.startswith(self.OID_IF_ADMIN_STATUS + '.'):
                 if_index = int(oid.split('.')[-1])
                 if if_index in ports:
                     ports[if_index]['admin_status'] = self.status_to_string(int(value))
         
         # Parse operational status
         for oid, value in snmp_data.items():
-            if self.OID_IF_OPER_STATUS in oid and not oid.endswith(self.OID_IF_OPER_STATUS):
+            if oid.startswith(self.OID_IF_OPER_STATUS + '.'):
                 if_index = int(oid.split('.')[-1])
                 if if_index in ports:
                     ports[if_index]['oper_status'] = self.status_to_string(int(value))
         
         # Parse interface type
         for oid, value in snmp_data.items():
-            if self.OID_IF_TYPE in oid and not oid.endswith(self.OID_IF_TYPE):
+            if oid.startswith(self.OID_IF_TYPE + '.'):
                 if_index = int(oid.split('.')[-1])
                 if if_index in ports:
                     ports[if_index]['port_type'] = str(value)
         
         # Parse speed (prefer high-speed if available)
         for oid, value in snmp_data.items():
-            if self.OID_IF_HIGH_SPEED in oid and not oid.endswith(self.OID_IF_HIGH_SPEED):
+            if oid.startswith(self.OID_IF_HIGH_SPEED + '.'):
                 if_index = int(oid.split('.')[-1])
                 if if_index in ports:
                     # High speed is in Mbps, convert to bps
                     ports[if_index]['port_speed'] = int(value) * 1000000
-            elif self.OID_IF_SPEED in oid and not oid.endswith(self.OID_IF_SPEED):
+            elif oid.startswith(self.OID_IF_SPEED + '.'):
                 if_index = int(oid.split('.')[-1])
                 if if_index in ports and ports[if_index]['port_speed'] == 0:
                     ports[if_index]['port_speed'] = int(value)
         
         # Parse MTU
         for oid, value in snmp_data.items():
-            if self.OID_IF_MTU in oid and not oid.endswith(self.OID_IF_MTU):
+            if oid.startswith(self.OID_IF_MTU + '.'):
                 if_index = int(oid.split('.')[-1])
                 if if_index in ports:
                     ports[if_index]['port_mtu'] = int(value)
