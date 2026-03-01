@@ -1013,6 +1013,11 @@ foreach ($_portStatRenames as $_oldCol => $_info) {
             return !columnExists($c, 'port_status_data', $_oldCol);
         },
         'apply' => function($c) use ($_oldCol, $_newCol, $_type) {
+            // If the target column already exists (PHP-first DB), just drop the
+            // stale old-Python column instead of renaming it.
+            if (columnExists($c, 'port_status_data', $_newCol)) {
+                return $c->query("ALTER TABLE port_status_data DROP COLUMN `{$_oldCol}`");
+            }
             return $c->query("ALTER TABLE port_status_data CHANGE COLUMN `{$_oldCol}` `{$_newCol}` {$_type}");
         }
     ];
