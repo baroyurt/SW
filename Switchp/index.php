@@ -1664,6 +1664,10 @@ header("Expires: 0");
                     <i class="fas fa-server"></i>
                     <span>Rack Kabinler</span>
                 </div>
+                <div class="search-box">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" class="search-input page-search" id="racks-search" placeholder="Rack, Switch, MAC, IP ara...">
+                </div>
             </div>
             
             <div class="racks-grid" id="racks-container">
@@ -1677,6 +1681,10 @@ header("Expires: 0");
                 <div class="page-title">
                     <i class="fas fa-network-wired"></i>
                     <span>Switch'ler</span>
+                </div>
+                <div class="search-box">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" class="search-input page-search" id="switches-search" placeholder="Switch, MAC, IP, Cihaz ara...">
                 </div>
             </div>
             
@@ -1739,6 +1747,10 @@ header("Expires: 0");
                     <i class="fas fa-project-diagram"></i>
                     <span>Network Topolojisi</span>
                 </div>
+                <div class="search-box">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" class="search-input page-search" id="topology-search" placeholder="Cihaz adı, MAC, IP, Switch ara...">
+                </div>
             </div>
             
             <div class="detail-panel">
@@ -1759,6 +1771,10 @@ header("Expires: 0");
                     <i class="fas fa-exclamation-triangle"></i>
                     <span>Port Değişiklik Alarmları</span>
                 </div>
+                <div class="search-box">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" class="search-input page-search" id="alarms-search" placeholder="Cihaz adı, MAC, IP, Switch ara...">
+                </div>
             </div>
             
             <!-- Port Alarms Component (same-origin trusted PHP file, no sandbox needed) -->
@@ -1776,6 +1792,10 @@ header("Expires: 0");
                     <i class="fas fa-file-import"></i>
                     <span>Device Import - MAC Address Registry</span>
                 </div>
+                <div class="search-box">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" class="search-input page-search" id="device-import-search" placeholder="Cihaz adı, MAC, IP, Switch ara...">
+                </div>
             </div>
             
             <!-- Device Import Component (same-origin trusted PHP file, no sandbox needed) -->
@@ -1789,11 +1809,6 @@ header("Expires: 0");
     
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
-    
-    <!-- Auto Backup Indicator -->
-    <div class="backup-indicator" id="backup-indicator" title="Son yedekleme">
-        <i class="fas fa-database"></i>
-    </div>
     
     <!-- Modals -->
     <!-- Switch Modal -->
@@ -2403,7 +2418,6 @@ header("Expires: 0");
         const homeButton = document.getElementById('home-button');
         const mainContent = document.getElementById('main-content');
         const toastContainer = document.getElementById('toast-container');
-        const backupIndicator = document.getElementById('backup-indicator');
         // ============================================
         // PANEL TARAFINDAN DÜZENLEME SİSTEMİ FONKSİYONLARI
         // ============================================
@@ -4937,15 +4951,7 @@ function confirmDeleteRack(rackId) {
         }
 
         function updateBackupIndicator() {
-            if (lastBackupTime) {
-                const time = new Date(lastBackupTime);
-                const now = new Date();
-                const diff = now - time;
-                const minutes = Math.floor(diff / 60000);
-                
-                backupIndicator.classList.add('active');
-                backupIndicator.title = `Son yedekleme: ${minutes} dakika önce`;
-            }
+            // Backup indicator removed; backups are managed from admin.php
         }
 
         function loadDashboard() {
@@ -7368,8 +7374,15 @@ document.getElementById('rack-form').addEventListener('submit', async function(e
                     search(this.value);
                 }
             });
-            
-            backupIndicator.addEventListener('click', openBackupModal);
+
+            // All page search boxes call the same global search function
+            document.querySelectorAll('.page-search').forEach(function(input) {
+                input.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        search(this.value);
+                    }
+                });
+            });
             
             showToast('Modern Rack & Switch Yönetim Sistemi başlatıldı', 'success');
             hideLoading();

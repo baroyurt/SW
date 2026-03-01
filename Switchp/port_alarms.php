@@ -580,6 +580,12 @@ $alarmsData = getActiveAlarmsData($conn);
                 <button class="filter-btn" onclick="filterAlarms('high')">Yüksek</button>
                 <button class="filter-btn" onclick="filterAlarms('medium')">Orta</button>
             </div>
+            <div style="position:relative; flex:1; max-width:320px;">
+                <i class="fas fa-search" style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--primary); font-size:13px;"></i>
+                <input type="text" id="alarm-search-input" placeholder="Cihaz adı, IP, MAC ara..."
+                    style="width:100%; padding:8px 12px 8px 32px; background:var(--dark); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                    oninput="applyAlarmSearch(this.value)">
+            </div>
             <button class="refresh-btn" onclick="refreshPage()">
                 <i class="fas fa-sync-alt"></i> Yenile
             </button>
@@ -708,6 +714,7 @@ $alarmsData = getActiveAlarmsData($conn);
         // Alarm data loaded dynamically to avoid caching issues
         let alarmsData = [];
         let currentFilter = 'all';
+        let currentAlarmSearch = '';
         let selectedAlarmId = null;
         
         // MAC workflow state
@@ -757,6 +764,17 @@ $alarmsData = getActiveAlarmsData($conn);
                 filtered = alarms.filter(a => a.severity === 'MEDIUM' && !(a.is_silenced == 1 || a.is_silenced === true));
             } else if (currentFilter === 'all') {
                 filtered = alarms;
+            }
+
+            // Apply text search
+            if (currentAlarmSearch) {
+                const q = currentAlarmSearch.toLowerCase();
+                filtered = filtered.filter(a =>
+                    (a.device_name && a.device_name.toLowerCase().includes(q)) ||
+                    (a.device_ip && a.device_ip.includes(q)) ||
+                    (a.mac_address && a.mac_address.toLowerCase().replace(/[^a-f0-9]/g,'').includes(q.replace(/[^a-f0-9]/g,''))) ||
+                    (a.port_number && String(a.port_number).includes(q))
+                );
             }
             
             if (filtered.length === 0) {
@@ -921,6 +939,11 @@ $alarmsData = getActiveAlarmsData($conn);
                 }
             });
             
+            displayAlarms(alarmsData);
+        }
+
+        function applyAlarmSearch(value) {
+            currentAlarmSearch = value.trim();
             displayAlarms(alarmsData);
         }
         
