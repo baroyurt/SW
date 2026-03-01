@@ -725,6 +725,7 @@ $currentUser = $auth->getUser();
         let currentLimit = 10;
         let currentSearch = '';
         let searchTimeout = null;
+        let applyMatchStatus = null; // { matched: Set, unmatched: Set } after apply_to_ports
         
         // Search functionality
         document.getElementById('device-search').addEventListener('input', (e) => {
@@ -799,8 +800,20 @@ $currentUser = $auth->getUser();
                 </tr>`;
             
             devices.forEach(device => {
-                html += `<tr>
-                    <td><code>${device.mac_address}</code></td>
+                let rowStyle = '';
+                let matchBadge = '';
+                if (applyMatchStatus) {
+                    const mac = device.mac_address;
+                    if (applyMatchStatus.matched.has(mac)) {
+                        rowStyle = 'background: rgba(16,185,129,0.12);';
+                        matchBadge = '<span style="margin-left:6px;padding:2px 7px;border-radius:10px;font-size:0.75em;background:#10b981;color:#fff;vertical-align:middle;">✓ Eşleşti</span>';
+                    } else if (applyMatchStatus.unmatched.has(mac)) {
+                        rowStyle = 'background: rgba(239,68,68,0.12);';
+                        matchBadge = '<span style="margin-left:6px;padding:2px 7px;border-radius:10px;font-size:0.75em;background:#ef4444;color:#fff;vertical-align:middle;">✗ Eşleşmedi</span>';
+                    }
+                }
+                html += `<tr style="${rowStyle}">
+                    <td><code>${device.mac_address}</code>${matchBadge}</td>
                     <td>${device.ip_address || '-'}</td>
                     <td><strong>${device.device_name}</strong></td>
                     <td><span style="color: var(--${device.source === 'manual' ? 'success' : 'primary'});">${device.source}</span></td>
@@ -998,7 +1011,13 @@ $currentUser = $auth->getUser();
                 const data = await response.json();
                 
                 if (data.success) {
-                    alert(`Başarılı! ${data.updated_count} port bağlantısı güncellendi.`);
+                    alert(`Başarılı! ${data.updated_count} port bağlantısı güncellendi.\n✓ Eşleşen: ${(data.matched_macs || []).length}  ✗ Eşleşmeyen: ${(data.unmatched_macs || []).length}`);
+                    // Store match status for color-coding the table
+                    applyMatchStatus = {
+                        matched: new Set(data.matched_macs || []),
+                        unmatched: new Set(data.unmatched_macs || [])
+                    };
+                    loadDevices();
                 } else {
                     alert('Hata: ' + (data.error || 'Bilinmeyen hata'));
                 }

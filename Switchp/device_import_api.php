@@ -525,6 +525,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             }
             
             $updated_count = 0;
+            $matched_macs = [];
+            $unmatched_macs = [];
             
             // For each device, find and update matching ports
             while ($device = $result->fetch_assoc()) {
@@ -549,7 +551,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 if ($updateStmt) {
                     $updateStmt->bind_param('sss', $ip, $hostname, $macNormalized);
                     $updateStmt->execute();
-                    $updated_count += $updateStmt->affected_rows;
+                    if ($updateStmt->affected_rows > 0) {
+                        $matched_macs[] = $mac;
+                        $updated_count += $updateStmt->affected_rows;
+                    } else {
+                        $unmatched_macs[] = $mac;
+                    }
                     $updateStmt->close();
                 }
             }
@@ -559,7 +566,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             echo json_encode([
                 'success' => true,
                 'updated_count' => $updated_count,
-                'message' => "$updated_count port description(s) updated with Device Import data"
+                'message' => "$updated_count port description(s) updated with Device Import data",
+                'matched_macs' => array_values(array_unique($matched_macs)),
+                'unmatched_macs' => array_values(array_unique($unmatched_macs))
             ]);
         } catch (Exception $e) {
             echo json_encode(['success' => false, 'error' => $e->getMessage()]);
