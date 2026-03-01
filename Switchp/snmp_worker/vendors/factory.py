@@ -4,6 +4,7 @@ Vendor factory for creating appropriate OID mappers.
 
 from typing import Dict, Type
 from .base import VendorOIDMapper
+from .cisco_c9200 import CiscoC9200Mapper
 from .cisco_catalyst9600 import CiscoCatalyst9600Mapper
 from .cisco_cbs350 import CiscoCBS350Mapper
 
@@ -12,6 +13,8 @@ class VendorFactory:
     """Factory for creating vendor-specific OID mappers."""
     
     _mappers: Dict[str, Type[VendorOIDMapper]] = {
+        'cisco_c9200l': CiscoC9200Mapper,
+        'cisco_c9300l': CiscoC9200Mapper,
         'cisco_catalyst9600': CiscoCatalyst9600Mapper,
         'cisco_cbs350': CiscoCBS350Mapper,
     }

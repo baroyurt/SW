@@ -151,9 +151,9 @@ class CiscoC9200Mapper(VendorOIDMapper):
             _log.debug('C9200 port count regex did not match sysDescr; using default %d', self.DEFAULT_PORTS)
 
         vendor = 'Cisco'
-        model  = 'C9200L'
+        model  = 'Cisco Catalyst'
         descr_lower = sys_descr.lower()
-        for token in ('c9200l', 'c9200', 'catalyst 9200'):
+        for token in ('c9300l', 'catalyst 9300', 'c9300', 'c9200l', 'catalyst 9200', 'c9200'):
             if token in descr_lower:
                 model = token.upper().replace('CATALYST ', 'C')
                 break
