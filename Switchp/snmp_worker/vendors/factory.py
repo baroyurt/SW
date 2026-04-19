@@ -1,0 +1,85 @@
+"""
+Vendor factory for creating appropriate OID mappers.
+"""
+
+from typing import Dict, Type
+from .base import VendorOIDMapper
+from .cisco_c9200 import CiscoC9200Mapper
+from .cisco_c9300 import CiscoC9300Mapper
+from .cisco_catalyst9600 import CiscoCatalyst9600Mapper
+from .cisco_cbs350 import CiscoCBS350Mapper
+
+
+class VendorFactory:
+    """Factory for creating vendor-specific OID mappers."""
+    
+    _mappers: Dict[str, Type[VendorOIDMapper]] = {
+        'cisco_c9200l': CiscoC9200Mapper,
+        'cisco_c9300l': CiscoC9300Mapper,
+        'cisco_catalyst9600': CiscoCatalyst9600Mapper,
+        'cisco_cbs350': CiscoCBS350Mapper,
+    }
+    
+    @classmethod
+    def get_mapper(cls, vendor: str, model: str) -> VendorOIDMapper:
+        """
+        Get appropriate OID mapper for vendor and model.
+        
+        Args:
+            vendor: Vendor name (e.g., "cisco")
+            model: Model name (e.g., "catalyst9600", "cbs350")
+            
+        Returns:
+            VendorOIDMapper instance
+            
+        Raises:
+            ValueError: If vendor/model combination not supported
+        """
+        # Normalize vendor and model names
+        vendor_lower = vendor.lower()
+        model_lower = model.lower()
+        
+        # Try exact match
+        key = f"{vendor_lower}_{model_lower}"
+        if key in cls._mappers:
+            return cls._mappers[key]()
+        
+        # Try partial matches (model_lower contained in mapper key, e.g. "cbs350" in "cisco_cbs350")
+        for mapper_key, mapper_class in cls._mappers.items():
+            if vendor_lower in mapper_key and model_lower in mapper_key:
+                return mapper_class()
+
+        # Try prefix matches: handles model variants like "cbs350-24" → "cbs350".
+        # Mapper keys follow the convention "vendor_model" (e.g. "cisco_cbs350"), so
+        # we strip the vendor prefix to get the base model name and check whether the
+        # configured model starts with that base (one-directional, not the reverse).
+        for mapper_key, mapper_class in cls._mappers.items():
+            if not mapper_key.startswith(vendor_lower + "_"):
+                continue
+            mapper_model = mapper_key[len(vendor_lower) + 1:]  # e.g. "cbs350"
+            if model_lower.startswith(mapper_model):
+                return mapper_class()
+
+        raise ValueError(f"Unsupported vendor/model: {vendor}/{model}. "
+                        f"Supported: {', '.join(cls._mappers.keys())}")
+    
+    @classmethod
+    def register_mapper(cls, key: str, mapper_class: Type[VendorOIDMapper]) -> None:
+        """
+        Register a new vendor mapper.
+        
+        Args:
+            key: Unique key for the mapper (e.g., "cisco_catalyst9600")
+            mapper_class: Mapper class to register
+        """
+        cls._mappers[key] = mapper_class
+    
+    @classmethod
+    def get_supported_vendors(cls) -> list[str]:
+        """
+        Get list of supported vendor/model combinations.
+        
+        Returns:
+            List of supported combinations
+        """
+        return list(cls._mappers.keys())

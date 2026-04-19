@@ -1,0 +1,167 @@
+# SNMP Worker Configuration Example
+# Copy this file to config.yml and adjust for your environment
+
+# Database Configuration (PostgreSQL)
+database:
+  host: "MANAGEENGINE\\SQLEXPRESS"
+  port: 1433
+  name: "switchdb"
+  user: ""       # Bos birak - Windows Authentication kullanir
+  password: ""   # Bos birak - Windows Authentication kullanir
+  pool_size: 10
+  max_overflow: 20
+
+# SNMP Configuration
+snmp:
+  timeout: 5  # seconds
+  retries: 3
+  max_bulk_size: 50  # max OIDs per bulk request
+
+# Polling Configuration
+polling:
+  interval: 30  # seconds between polls
+  parallel_devices: 5  # number of devices to poll in parallel
+  max_workers: 10  # max concurrent worker threads
+  # Milliseconds to wait between launching each SNMP thread (Phase 1).
+  # A value of 100 ms spreads 10 devices over ~1 s, significantly lowering
+  # the instantaneous CPU burst during the SNMP scan phase.
+  # Set to 0 to disable staggering (all devices started simultaneously).
+  snmp_stagger_ms: 0
+  # Maximum number of parallel DB writer threads (Phase 2).
+  # Lower values reduce CPU spikes during the database-write phase.
+  # Set to 0 to use the automatic value (max_workers // 2, at least 4).
+  db_max_workers: 0
+  # Days to keep port_snapshot rows.
+  # The port_snapshot table stores ONE row per port (UPSERT design), so
+  # growth is bounded.  This setting only removes rows for ports/devices that
+  # were decommissioned and are no longer being polled.  15 days is enough.
+  snapshot_retention_days: 15
+  # Minimum seconds between successive device_polling_data row inserts for each
+  # device.  A status transition (online ↔ unreachable) always forces an
+  # immediate insert to preserve exact downtime timestamps.  Set to 0 to insert
+  # on every poll (original behaviour).  Default 60 reduces growth ~4× vs
+  # a 15 s poll interval while keeping chart resolution at 1 sample/minute.
+  polling_data_interval: 60
+  # Days to keep device_polling_data rows.  7 days matches the maximum range
+  # of the health trend charts (168 hours).
+  polling_data_retention_days: 7
+  # Minimum seconds between MAC address table SNMP walks per device.
+  # Cached MACs are used on intermediate cycles.
+  # 60 s = 1 MAC walk every 4 cycles at a 15 s poll interval.
+  # Aligned with port_poll_interval to keep alarm causal ordering consistent.
+  # Set to 0 to walk MAC table every poll (original behaviour).
+  mac_poll_interval: 60
+  # Minimum seconds between device-info SNMP collections per device
+  # (sysDescr, temperature, fan, PoE, CPU).
+  # 120 s = 1 device-info collection every 8 cycles at a 15 s poll interval.
+  # Set to 0 to collect device info every poll (original behaviour).
+  device_info_poll_interval: 120
+  # Minimum seconds between port-status SNMP walks per device
+  # (ifTable, ifOperStatus, ifAdminStatus, dot1qPvid).
+  # On cached cycles, DB port writes and alarm checks are skipped entirely.
+  # Alarm detection latency = at most port_poll_interval seconds.
+  # 60 s = 1 port walk every 4 cycles at a 15 s poll interval.
+  # Set to 0 to walk ports every poll (original behaviour, default 15).
+  port_poll_interval: 60
+
+# Devices to Monitor
+devices:
+  - name: "Core-Switch-9600"
+    ip: "192.168.1.1"
+    vendor: "cisco"
+    model: "catalyst9600"
+    snmp_version: "2c"
+    community: "public"
+    enabled: true
+    # Optional: only these port numbers generate port_down/port_up alarms.
+    # Leave empty (or omit) to monitor ALL ports.
+    # Example: monitored_ports: [1, 2, 49, 50]
+    # Optional: exclude these port numbers from MAC address table processing.
+    # Use for uplink/trunk ports that learn MACs from all downstream switches;
+    # including them causes duplicate MAC writes and DB deadlocks.
+    # Example: mac_exclude_ports: [49, 50]
+    
+  - name: "Access-Switch-CBS350-01"
+    ip: "192.168.1.10"
+    vendor: "cisco"
+    model: "cbs350"
+    snmp_version: "2c"
+    community: "public"
+    enabled: true
+    
+  - name: "Core-Switch-9600-v3"
+    ip: "192.168.1.2"
+    vendor: "cisco"
+    model: "catalyst9600"
+    snmp_version: "3"
+    enabled: false
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"  # or MD5
+      auth_password: "authpass"
+      priv_protocol: "AES"  # or DES
+      priv_password: "privpass"
+    # Optional: Engine ID for SNMPv3 (hex string, use if device has custom Engine ID)
+    # snmp_engine_id: "0102030405060708"
+    
+  - name: "CBS350-24FP-Custom-EngineID"
+    ip: "172.18.1.214"
+    vendor: "cisco"
+    model: "cbs350"
+    snmp_version: "3"
+    enabled: false
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123"
+    # CRITICAL: CBS350 with user-defined Engine ID requires this!
+    snmp_engine_id: "0102030405060708"
+
+# Alarm Configuration
+alarms:
+  enabled: true
+  # Debounce time to prevent alarm flooding (seconds)
+  debounce_time: 60
+  # States that trigger alarms
+  trigger_on:
+    - port_down
+    - device_unreachable
+    - snmp_error
+
+# Telegram Notifications
+telegram:
+  enabled: false
+  bot_token: "YOUR_BOT_TOKEN"
+  chat_id: "YOUR_CHAT_ID"
+  # Events to notify
+  notify_on:
+    - port_down
+    - port_up
+    - device_unreachable
+
+# Email Notifications
+email:
+  enabled: false
+  smtp_host: "smtp.yandex.com.tr"
+  smtp_port: 465
+  smtp_user: "your_email@yandex.com.tr"
+  smtp_password: "your_app_password"
+  from_address: "noreply@yourcompany.com"
+  to_addresses:
+    - "admin@yourcompany.com"
+    - "network@yourcompany.com"
+  notify_on:
+    - port_down
+    - device_unreachable
+
+# Logging Configuration
+logging:
+  level: "WARNING"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+                    # WARNING önerilir – INFO çok fazla log satırı üretir
+  format: "text"    # json veya text – text daha az yer kaplar
+  file: "logs/snmp_worker.log"
+  max_bytes: 5242880  # 5 MB – bu boyuta ulaşınca rotate edilir
+  backup_count: 2     # Kaç yedek log dosyası tutulacak (toplam ~15 MB)
+  console: false      # Servis modunda konsola yazma

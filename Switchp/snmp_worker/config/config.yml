@@ -1,0 +1,787 @@
+# SNMP Worker Configuration
+# Active configuration file for SNMP monitoring
+
+# Database Configuration (SQL Server Express)
+# host: Use the SQL Server instance name (e.g., HOSTNAME\SQLEXPRESS or .\SQLEXPRESS)
+# Leave user and password empty to use Windows Authentication (Trusted_Connection)
+database:
+  host: "MANAGEENGINE\\SQLEXPRESS"
+  port: 1433
+  name: switchdb
+  user: ""
+  password: ""
+  pool_size: 10
+  max_overflow: 20
+
+# Global SNMP Configuration
+snmp:
+  version: "3"
+  username: "snmpuser"
+  auth_protocol: "SHA"
+  auth_password: "AuthPass123!"
+  priv_protocol: "AES"
+  priv_password: "PrivPass123!"
+  timeout: 2
+  retries: 1
+  max_bulk_size: 100
+
+# Polling Configuration
+polling:
+  interval: 60
+  parallel_devices: 15
+  max_workers: 10
+  # Faz 1 – her cihaz thread'i arasındaki bekleme süresi (milisaniye).
+  # 38 cihaz × 100 ms = ~3.8 s yayılma; SNMP timeout (2 s) içinde tüm
+  # cihazlar hâlâ paralel sorgulanır, ancak anlık CPU/ağ tepe değeri düşer.
+  snmp_stagger_ms: 300
+  # Faz 2 – eş zamanlı DB yazma işçisi sayısı.
+  # 4 işçi, 10 işçiye (eski otomatik değer) kıyasla Phase 2 CPU kullanımını
+  # %96-100'den ~%40-50'ye düşürür; toplam yazma süresi ~2-3 s artar.
+  db_max_workers: 2
+  # device_polling_data satır azaltma.
+  # Her cihaz için art arda INSERT'ler arasındaki minimum süre (saniye).
+  # Cihaz ONLINE↔UNREACHABLE geçişlerinde bu süre gözetilmez — her geçişte
+  # hemen yazılır (alarm geçmişi korunur).  Normal çalışmada ise her 60 s'de
+  # bir satır yazılır; 15 s interval ile bu ~4× azalma demektir.
+  # 0 yaparsanız eski davranışa döner (her poll'da INSERT).
+  polling_data_interval: 60
+  # device_polling_data tablosunda kaç günlük veri tutulacak.
+  # 7 gün, sağlık grafikleri için yeterli (grafik max 168 s = 7 gün gösterir).
+  polling_data_retention_days: 7
+  # Switch SNMP yükünü azaltma — MAC tablosu tarama aralığı.
+  # Her cihaz için MAC FDB (Forwarding Database) SNMP sorguları arasındaki
+  # minimum süre (saniye).  Aradaki döngülerde önbellek kullanılır.
+  # C9200/C9300: per-VLAN context walk'ları azalır.
+  # CBS350: FDB walk azalır.
+  # 60 s → 15 s interval ile 4 döngüde 1 kez MAC sorgusu.
+  # port_poll_interval ile eşitlenerek alarm sıralaması tutarlı hale getirildi.
+  # 0 yaparsanız eski davranışa döner (her poll'da MAC sorgusu).
+  mac_poll_interval: 60
+  # Switch SNMP yükünü azaltma — cihaz bilgisi tarama aralığı.
+  # sysDescr, sıcaklık, fan, PoE, CPU gibi "çevre birimi" bilgilerinin
+  # kaç saniyede bir sorgulanacağını belirler.  Aradaki döngülerde önbellekteki
+  # değer kullanılır; switch'e ek yük binmez.
+  # 120 s → 15 s interval ile 8 döngüde 1 kez cihaz bilgisi sorgusu.
+  # OID hataları olsa bile switch yükü minimumda tutar.
+  # 0 yaparsanız her döngüde tam sorgu yapılır.
+  device_info_poll_interval: 120
+  # Switch SNMP yükünü azaltma — port durumu tarama aralığı.
+  # ifTable, ifOperStatus, ifAdminStatus, dot1qPvid SNMP walk'ları arasındaki
+  # minimum süre (saniye).  Aradaki döngülerde önbellek kullanılır;
+  # DB port_status_data yazımı ve alarm kontrolü atlanır.
+  # Alarm gecikme süresi en fazla port_poll_interval saniyedir.
+  # 60 s → 15 s interval ile 4 döngüde 1 kez port SNMP walk.
+  # 0 yaparsanız eski davranışa döner (her döngüde port walk).
+  port_poll_interval: 60
+
+# Switches Configuration
+switches:
+  - name: "SW23-BALO"
+    host: "172.18.1.226"
+    vendor: "cisco"
+    model: "C9200L"
+    enabled: true
+    description: "SW23 - BALO Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123"
+
+  - name: "SW24-BALO"
+    host: "172.18.1.225"
+    vendor: "cisco"
+    model: "CBS350"
+    enabled: true
+    description: "SW24 - BALO Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW25-BALO"
+    host: "172.18.1.224"
+    vendor: "cisco"
+    model: "C9200L"
+    enabled: true
+    description: "SW25 - BALO Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW35-BALO"
+    host: "172.18.1.214"
+    vendor: "cisco"
+    model: "CBS350"
+    enabled: true
+    description: "Test Switch SW35 - BALO Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW31-RUBY"
+    host: "172.18.1.218"
+    vendor: "cisco"
+    model: "C9300L"
+    enabled: true
+    description: "SW31 - RUBY Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW32-RUBY"
+    host: "172.18.1.217"
+    vendor: "cisco"
+    model: "C9300L"
+    enabled: true
+    description: "SW32 - RUBY Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW33-RUBY"
+    host: "172.18.1.216"
+    vendor: "cisco"
+    model: "C9300L"
+    enabled: true
+    description: "SW33 - RUBY Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW34-RUBY"
+    host: "172.18.1.215"
+    vendor: "cisco"
+    model: "C9300L"
+    enabled: true
+    description: "SW34 - RUBY Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW36-HALI SAHA"
+    host: "172.18.1.213"
+    vendor: "cisco"
+    model: "CBS350"
+    enabled: true
+    description: "SW36 - HALI SAHA Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW9-SPA"
+    host: "172.18.1.240"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW9 - SPA Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW1-CASINO"
+    host: "172.18.1.248"
+    vendor: "cisco"
+    model: "CBS350-48FP"
+    enabled: true
+    description: "SW1 - CASINO Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW6-CASINO"
+    host: "172.18.1.243"
+    vendor: "cisco"
+    model: "CBS350-48FP"
+    enabled: true
+    description: "SW6 - CASINO Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW11-CASINO"
+    host: "172.18.1.238"
+    vendor: "cisco"
+    model: "CBS350-48FP"
+    enabled: true
+    description: "SW11 - CASINO Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW8-MARKETING"
+    host: "172.18.1.241"
+    vendor: "cisco"
+    model: "CBS350-48FP-4X"
+    enabled: true
+    description: "SW8 - MARKETING Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW7-CASINO KAMERA"
+    host: "172.18.1.242"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW7 - CASINO KAMERA Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW39-BEACH"
+    host: "172.18.1.210"
+    vendor: "cisco"
+    model: "CBS350-48FP-4X"
+    enabled: true
+    description: "SW39 - BEACH Location"
+    # Port 50 = SW38 ile bakır uplink; tüm switch MAC'lerini duyar → deadlock kaynağı
+    mac_exclude_ports: [50]
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW38-BEACH"
+    host: "172.18.1.211"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW38 - BEACH Location"
+    # Port 1 = SW39 ile bakır uplink; tüm switch MAC'lerini duyar → deadlock kaynağı
+    mac_exclude_ports: [1]
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW3-DIAMOND"
+    host: "172.18.1.246"
+    vendor: "cisco"
+    model: "CBS350-48FP-4X"
+    enabled: true
+    description: "SW3 - DIAMOND Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW12-DIAMOND"
+    host: "172.18.1.237"
+    vendor: "cisco"
+    model: "CBS350-48FP-4X"
+    enabled: true
+    description: "SW12 - DIAMOND Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW22-BOSS CATI"
+    host: "172.18.1.227"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW22 - BOSS CATI Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW19-BALIK"
+    host: "172.18.1.230"
+    vendor: "cisco"
+    model: "C9200L"
+    enabled: true
+    description: "SW19 - BALIK Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW27-BUYUK KABIN"
+    host: "172.18.1.222"
+    vendor: "cisco"
+    model: "C9200L"
+    enabled: true
+    description: "SW27 - BUYUK KABIN Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW29-BUYUK KABIN"
+    host: "172.18.1.220"
+    vendor: "cisco"
+    model: "C9200L"
+    enabled: true
+    description: "SW29 - BUYUK KABIN Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW10-VIP"
+    host: "172.18.1.239"
+    vendor: "cisco"
+    model: "CBS350-48FP"
+    enabled: true
+    description: "SW10 - VIP Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW13-2. KAT"
+    host: "172.18.1.236"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW13 - 2. KAT Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW14-1. KAT"
+    host: "172.18.1.235"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW14 - 1. KAT Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW15-2. KAT"
+    host: "172.18.1.234"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW15 - 2. KAT Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW16-1. KAT"
+    host: "172.18.1.233"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW16 - 1. KAT Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW17-3. KAT"
+    host: "172.18.1.232"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW17 - 3. KAT Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW18-3. KAT"
+    host: "172.18.1.231"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW18 - 3. KAT Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW2-OTEL"
+    host: "172.18.1.247"
+    vendor: "cisco"
+    model: "CBS350-48FP"
+    enabled: true
+    description: "SW2 - OTEL Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW21-HAVUZ"
+    host: "172.18.1.228"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW21 - HAVUZ Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW20-SLOT"
+    host: "172.18.1.229"
+    vendor: "cisco"
+    model: "CBS350-24FP"
+    enabled: true
+    description: "SW20 - SLOT Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW26-VIP"
+    host: "172.18.1.223"
+    vendor: "cisco"
+    model: "C9200L-48P"
+    enabled: true
+    description: "SW26 - VIP Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW30-KUCUK KABIN"
+    host: "172.18.1.219"
+    vendor: "cisco"
+    model: "C9200L-48P"
+    enabled: true
+    description: "SW30 - KUCUK KABIN Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW28-KUCUK KABIN"
+    host: "172.18.1.221"
+    vendor: "cisco"
+    model: "C9200L-48P"
+    enabled: true
+    description: "SW28 - KUCUK KABIN Location"
+    snmp_version: "3"
+    snmp_port: 161
+    trap_port: 162
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+
+  - name: "SW5-SLOT"
+    host: "172.18.1.244"
+    vendor: "cisco"
+    model: "CBS350-48FP"
+    enabled: true
+    description: "SW5 - SLOT Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+  - name: "SW4-OTEL"
+    host: "172.18.1.245"
+    vendor: "cisco"
+    model: "CBS350-48FP"
+    enabled: true
+    description: "SW4 - OTEL Location"
+    snmp_version: "3"
+    snmp_v3:
+      username: "snmpuser"
+      auth_protocol: "SHA"
+      auth_password: "AuthPass123!"
+      priv_protocol: "AES"
+      priv_password: "PrivPass123!"
+      engine_id: "0102030405060708"
+
+# Alarm Configuration
+alarms:
+  enabled: true
+  debounce_time: 60
+  unreachable_threshold: 3
+  trigger_on:
+    - port_down
+    - device_unreachable
+    - snmp_error
+    - mac_moved
+    - vlan_changed
+    - description_changed
+  vlan_exclude:
+    - 120
+    - 130
+    - 140
+    - 50
+  severity_routing:
+    CRITICAL:
+      telegram: true
+      email: true
+      events:
+        - device_unreachable
+        - multiple_ports_down
+        - core_link_down
+    HIGH:
+      telegram: true
+      email: true
+      events:
+        - mac_moved
+        - port_down
+        - snmp_error
+    MEDIUM:
+      telegram: false
+      email: true
+      events:
+        - vlan_changed
+        - port_up
+        - mac_added
+    LOW:
+      telegram: false
+      email: false
+      events:
+        - description_changed
+
+# Telegram Notifications
+telegram:
+  enabled: false
+  bot_token: ""
+  chat_id: ""
+  notify_on:
+    - port_down
+    - port_up
+    - device_unreachable
+
+# Email Notifications
+email:
+  enabled: true
+  smtp_host: "smtp.yandex.com"
+  smtp_port: 465
+  smtp_user: "destek@chamadaprestige.com"
+  smtp_password: "yjaixkhyxewtuguq"
+  from_address: "destek@chamadaprestige.com"
+  to_addresses:
+    - "baris.yurtlak@chamadaprestige.com"
+    - "osman.kartal@chamadaprestige.com"
+  notify_on:
+    - port_down
+    - device_unreachable
+
+
+# Logging Configuration
+logging:
+  level: "WARNING"  # Sadece uyarı ve hatalar loglanır (INFO çok fazla log üretir)
+  format: "text"    # text formatı json'dan daha az yer kaplar
+  file: "logs/snmp_worker.log"
+  max_bytes: 5242880  # 5 MB – dosya büyüyünce rotate edilir
+  backup_count: 2     # En fazla 2 yedek dosya tutulur (toplam ~15 MB)
+  console: false      # Servis modunda konsola yazma
+
+# Domain Server Integration (MAC → IP → Device Name Resolution)
+domain_server:
+  enabled: false  # Set to true to enable automatic domain queries
+  
+  # Active Directory / LDAP Configuration
+  ldap_host: "dc.company.local"  # Domain controller hostname or IP
+  ldap_port: 389  # 389 for LDAP, 636 for LDAPS
+  ldap_user: "DOMAIN\\administrator"  # Domain user with read permissions
+  ldap_password: "YourPassword123"  # User password
+  ldap_base_dn: ""  # Auto-detected if empty, e.g., "DC=company,DC=local"
+  
+  # DHCP Server Configuration
+  dhcp_host: "dhcp.company.local"  # DHCP server hostname or IP
+  
+  # DNS/NetBIOS Resolution
+  use_dns: true  # Enable DNS lookups
+  use_netbios: true  # Enable NetBIOS name resolution
+  
+  # Cache Configuration
+  cache_duration_days: 30  # How long to cache domain lookup results
+  
+  # Fallback to Excel/Manual Registry
+  fallback_to_registry: true  # If domain lookup fails, use mac_device_registry table
+
+# System Configuration
+system:
+  timezone: "Europe/Athens"  # UTC+2 (Athens timezone)
+
+# Maintenance Configuration
+maintenance:
+  # Stale port cleanup: number of days a port must be continuously DOWN and
+  # without its registered MAC appearing in the FDB before the port's MAC field
+  # is automatically cleared.  This removes ghost entries where a device was
+  # physically moved to a different port but the old port still showed the MAC.
+  # Conditions for clearing:
+  #   - ports.oper_status = 'down'
+  #   - The MAC is tracked in mac_address_tracking with last_seen > stale_days ago
+  #   - The MAC's current location in tracking differs from this port
+  # Use a value of 7 days or more to avoid clearing ports that are only
+  # temporarily offline (e.g. maintenance, holidays).
+  stale_port_cleanup_days: 7

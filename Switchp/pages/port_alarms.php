@@ -1,0 +1,1950 @@
+<?php
+// Require authentication
+require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
+
+$auth = new Auth($conn);
+$auth->requireLogin();
+
+$currentUser = $auth->getUser();
+
+// Prevent caching
+header('Cache-Control: no-cache, no-store, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
+
+// Fetch alarm data server-side to avoid CORS issues in sandboxed iframe
+function getActiveAlarmsData($conn) {
+    $columns_to_select = "a.id, a.device_id, a.alarm_type, a.severity, a.status,
+                a.port_number, a.title, a.message, a.details,
+                a.occurrence_count, a.first_occurrence, a.last_occurrence,
+                a.acknowledged_at, a.acknowledged_by, a.acknowledgment_type,
+                a.silence_until, a.mac_address, a.old_value, a.new_value";
+    
+    // Try to check if columns exist
+    $result = $conn->query("SHOW COLUMNS FROM alarms LIKE 'from_port'");
+    if ($result && $result->num_rows > 0) {
+        $columns_to_select .= ", a.from_port, a.to_port";
+    } else {
+        $columns_to_select .= ", NULL as from_port, NULL as to_port";
+    }
+    
+    // Check for VLAN columns
+    $result = $conn->query("SHOW COLUMNS FROM alarms LIKE 'old_vlan_id'");
+    if ($result && $result->num_rows > 0) {
+        $columns_to_select .= ", a.old_vlan_id, a.new_vlan_id";
+    } else {
+        $columns_to_select .= ", NULL as old_vlan_id, NULL as new_vlan_id";
+    }
+    
+    $sql = "SELECT 
+                $columns_to_select,
+                d.name as device_name, d.ip_address as device_ip,
+                CASE 
+                    WHEN a.silence_until > NOW() THEN 1
+                    ELSE 0
+                END as is_silenced,
+                CASE
+                    WHEN a.alarm_type IN ('mac_moved', 'mac_added', 'vlan_changed', 'description_changed') THEN 1
+                    ELSE 0
+                END as is_port_change
+            FROM alarms a
+            LEFT JOIN snmp_devices d ON a.device_id = d.id
+            WHERE a.status = 'ACTIVE'
+            ORDER BY 
+                CASE a.severity
+                    WHEN 'CRITICAL' THEN 1
+                    WHEN 'HIGH' THEN 2
+                    WHEN 'MEDIUM' THEN 3
+                    WHEN 'LOW' THEN 4
+                    WHEN 'INFO' THEN 5
+                END,
+                a.last_occurrence DESC";
+    
+    $result = $conn->query($sql);
+    $alarms = [];
+    
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $alarms[] = $row;
+        }
+    }
+    
+    return $alarms;
+}
+
+$alarmsData = getActiveAlarmsData($conn);
+?>
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Port Change Alarms - Switch Management</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        html { zoom: 0.9; }
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #0f172a;
+            --dark-light: #1e293b;
+            --text: #e2e8f0;
+            --text-light: #94a3b8;
+            --border: #334155;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--dark);
+            color: var(--text);
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: var(--dark-light);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+        
+        .header h1 {
+            color: var(--primary);
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: var(--text-light);
+            font-size: 14px;
+        }
+        
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: var(--dark-light);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            text-align: center;
+            border: 1px solid var(--border);
+            transition: all 0.3s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        }
+        
+        .stat-card .label {
+            color: var(--text-light);
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .value {
+            font-size: 36px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .stat-card.critical .value { color: var(--danger); }
+        .stat-card.high .value { color: var(--warning); }
+        .stat-card.medium .value { color: #fbbf24; }
+        .stat-card.info .value { color: var(--primary); }
+        
+        .toolbar {
+            background: var(--dark-light);
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            border: 1px solid var(--border);
+        }
+        
+        .filter-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .filter-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            background: var(--dark);
+            color: var(--text);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .filter-btn:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+        
+        .filter-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+        
+        .refresh-btn {
+            padding: 8px 16px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+        }
+        
+        .refresh-btn:hover {
+            background: var(--primary-dark);
+        }
+
+        .silence-type-btn {
+            padding: 8px 14px;
+            background: var(--warning);
+            color: #000;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .silence-type-btn:hover {
+            background: #f59e0b;
+        }
+
+        .silence-type-menu {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 110%;
+            background: var(--dark-light);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            min-width: 200px;
+            z-index: 9999;
+            box-shadow: 0 4px 16px rgba(0,0,0,.5);
+            padding: 6px 0;
+        }
+
+        .silence-type-menu.open {
+            display: block;
+        }
+
+        .silence-type-item {
+            display: block;
+            width: 100%;
+            padding: 9px 16px;
+            text-align: left;
+            background: none;
+            border: none;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 13px;
+            transition: background .15s;
+        }
+
+        .silence-type-item i {
+            margin-right: 8px;
+            width: 14px;
+            text-align: center;
+        }
+
+        .silence-type-item:hover {
+            background: rgba(255,255,255,.08);
+        }
+        
+        .alarms-container {
+            background: var(--dark-light);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+        }
+        
+        .alarm-card {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: all 0.3s;
+            position: relative;
+            background: var(--dark);
+        }
+        
+        .alarm-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        .alarm-card.critical {
+            border-left: 5px solid var(--danger);
+            background: rgba(239, 68, 68, 0.1);
+        }
+        
+        .alarm-card.high {
+            border-left: 5px solid var(--warning);
+            background: rgba(245, 158, 11, 0.1);
+        }
+        
+        .alarm-card.medium {
+            border-left: 5px solid #fbbf24;
+            background: rgba(251, 191, 36, 0.1);
+        }
+        
+        .alarm-card.silenced {
+            opacity: 0.6;
+            border-left-color: var(--text-light);
+        }
+        
+        .alarm-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+        
+        .alarm-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 5px;
+        }
+        
+        .alarm-severity {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .alarm-severity.critical { background: var(--danger); color: white; }
+        .alarm-severity.high { background: var(--warning); color: white; }
+        .alarm-severity.medium { background: #fbbf24; color: #1e293b; }
+        
+        .alarm-info {
+            color: var(--text-light);
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        
+        .alarm-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+        }
+        
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .info-label {
+            font-size: 12px;
+            color: var(--text-light);
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .info-value {
+            font-size: 14px;
+            color: var(--text);
+        }
+        
+        .alarm-additional-info {
+            background: rgba(255,255,255,0.05);
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: var(--text-light);
+        }
+        
+        .alarm-additional-info div {
+            margin-bottom: 5px;
+        }
+        
+        .alarm-additional-info div:last-child {
+            margin-bottom: 0;
+        }
+        
+        .alarm-message {
+            color: var(--text);
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+        
+        .alarm-details {
+            background: rgba(255,255,255,0.05);
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: var(--text-light);
+        }
+        
+        .alarm-meta {
+            display: flex;
+            gap: 20px;
+            font-size: 12px;
+            color: var(--text-light);
+            flex-wrap: wrap;
+        }
+        
+        .alarm-meta span {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .alarm-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+        
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: #000;
+        }
+
+        .btn-warning:hover {
+            background: #f59e0b;
+        }
+        
+        .btn-secondary {
+            background: var(--dark);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-light);
+        }
+        
+        .empty-state i {
+            font-size: 64px;
+            margin-bottom: 20px;
+            color: var(--success);
+        }
+        
+        .empty-state h3 {
+            color: var(--text);
+            margin-bottom: 10px;
+        }
+        
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 9999;
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-overlay.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal {
+            background: var(--dark-light);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid var(--border);
+        }
+        
+        .modal-header {
+            margin-bottom: 20px;
+        }
+        
+        .modal-title {
+            color: var(--primary);
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text);
+            font-weight: 600;
+        }
+        
+        .form-group input, .form-group textarea, .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--dark);
+            color: var(--text);
+            font-size: 14px;
+        }
+        
+        .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        /* Improved card shadows and styling to match index.php */
+        .stat-card {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        
+        .stat-card:hover {
+            box-shadow: 0 8px 12px rgba(0, 0, 0, 0.4);
+            transform: translateY(-2px);
+        }
+        
+        .alarm-card {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .alarm-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            transform: translateY(-2px);
+        }
+        
+        /* Animation for pulse effect */
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+            }
+            50% {
+                box-shadow: 0 0 0 20px rgba(59, 130, 246, 0);
+            }
+        }
+
+        /* Toast notifications */
+        #paToastContainer {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+        .pa-toast {
+            padding: 14px 20px;
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            max-width: 380px;
+            pointer-events: auto;
+            animation: paToastIn 0.3s ease;
+        }
+        .pa-toast.success { background: rgba(16,185,129,0.95); border-left: 4px solid #059669; }
+        .pa-toast.error   { background: rgba(239,68,68,0.95);  border-left: 4px solid #dc2626; }
+        .pa-toast.warning { background: rgba(245,158,11,0.95); border-left: 4px solid #d97706; }
+        .pa-toast.info    { background: rgba(59,130,246,0.95);  border-left: 4px solid #2563eb; }
+        @keyframes paToastIn  { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes paToastOut { from { transform: translateX(0);    opacity: 1; } to { transform: translateX(110%); opacity: 0; } }
+    </style>
+</head>
+<body>
+    <div id="paToastContainer"></div>
+
+    <!-- Confirm Modal -->
+    <div class="modal-overlay" id="paConfirmModal">
+        <div class="modal" style="max-width: 460px;">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fas fa-question-circle" style="color:var(--warning);"></i> <span id="paConfirmTitle"></span></div>
+            </div>
+            <p id="paConfirmBody" style="color: var(--text-light); margin-bottom: 24px; line-height: 1.6; font-size: 14px;"></p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="paConfirmCancel"><i class="fas fa-times"></i> İptal</button>
+                <button class="btn btn-primary"   id="paConfirmOk"    style="background:var(--success);"><i class="fas fa-check"></i> Onayla</button>
+            </div>
+        </div>
+    </div>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-exclamation-triangle"></i> Port Değişiklik Alarmları</h1>
+        </div>
+        
+        <div class="stats-bar">
+            <div class="stat-card critical">
+                <div class="label">Kritik</div>
+                <div class="value" id="criticalCount">0</div>
+            </div>
+            <div class="stat-card high">
+                <div class="label">Yüksek</div>
+                <div class="value" id="highCount">0</div>
+            </div>
+            <div class="stat-card medium">
+                <div class="label">Orta</div>
+                <div class="value" id="mediumCount">0</div>
+            </div>
+            <div class="stat-card info">
+                <div class="label">Toplam Aktif</div>
+                <div class="value" id="totalCount">0</div>
+            </div>
+        </div>
+        
+        <div class="toolbar">
+            <div class="filter-group">
+                <span style="color: var(--text-light); font-size: 14px;">Filtre:</span>
+                <button class="filter-btn active" onclick="filterAlarms('all')">Tümü</button>
+                <button class="filter-btn" onclick="filterAlarms('critical')">Kritik</button>
+                <button class="filter-btn" onclick="filterAlarms('high')">Yüksek</button>
+                <button class="filter-btn" onclick="filterAlarms('medium')">Orta</button>
+            </div>
+            <div style="position:relative; flex:1; max-width:320px;">
+                <i class="fas fa-search" style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--primary); font-size:13px;"></i>
+                <input type="text" id="alarm-search-input" placeholder="Cihaz adı, IP, MAC ara..."
+                    style="width:100%; padding:8px 12px 8px 32px; background:var(--dark); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px;"
+                    oninput="applyAlarmSearch(this.value)">
+            </div>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <div style="position:relative;">
+                    <button class="silence-type-btn" id="silenceTypeToggle" onclick="toggleSilenceTypeMenu()">
+                        <i class="fas fa-bell-slash"></i> Türe Göre Sessize Al <i class="fas fa-caret-down"></i>
+                    </button>
+                    <div class="silence-type-menu" id="silenceTypeMenu">
+                        <button class="silence-type-item" onclick="silenceByType('vlan_changed')"><i class="fas fa-network-wired"></i> VLAN Değişti</button>
+                        <button class="silence-type-item" onclick="silenceByType('description_changed')"><i class="fas fa-edit"></i> Açıklama Değişti</button>
+                        <button class="silence-type-item" onclick="silenceByType('port_down')"><i class="fas fa-times-circle"></i> Port Kapandı</button>
+                        <button class="silence-type-item" onclick="silenceByType('port_up')"><i class="fas fa-check-circle"></i> Port Açıldı</button>
+                        <button class="silence-type-item" onclick="silenceByType('mac_moved')"><i class="fas fa-exchange-alt"></i> MAC Taşındı</button>
+                    </div>
+                </div>
+                <div style="position:relative;">
+                    <button class="silence-type-btn" id="closeTypeToggle" onclick="toggleCloseTypeMenu()" style="background: var(--danger); color: #fff;">
+                        <i class="fas fa-times-circle"></i> Türe Göre Kapat <i class="fas fa-caret-down"></i>
+                    </button>
+                    <div class="silence-type-menu" id="closeTypeMenu">
+                        <button class="silence-type-item" onclick="closeByType('port_down')"><i class="fas fa-times-circle"></i> Port Kapandı</button>
+                        <button class="silence-type-item" onclick="closeByType('port_up')"><i class="fas fa-check-circle"></i> Port Açıldı</button>
+                    </div>
+                </div>
+                <button class="refresh-btn" onclick="refreshPage()">
+                    <i class="fas fa-sync-alt"></i> Yenile
+                </button>
+                <a href="mac_bulk_fix.php" class="refresh-btn" style="text-decoration:none;background:var(--success);color:#fff;" title="Tüm açık MAC uyuşmazlıklarını tek sayfada toplu kaydet">
+                    <i class="fas fa-wrench"></i> Toplu MAC Düzelt
+                </a>
+            </div>
+        </div>
+        
+        <div class="alarms-container">
+            <div id="alarms-list"></div>
+        </div>
+    </div>
+    
+    <!-- Acknowledge Modal -->
+    <div class="modal-overlay" id="ackModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Alarmı Kapat</h3>
+            </div>
+            <div class="form-group">
+                <label>Onay Türü:</label>
+                <select id="ackType">
+                    <option value="known_change">Bilgi Dahilinde (Known Change)</option>
+                    <option value="false_alarm">Yanlış Alarm (False Alarm)</option>
+                    <option value="resolved">Çözüldü (Resolved)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Notlar (İsteğe Bağlı):</label>
+                <textarea id="ackNotes" rows="3" placeholder="Not ekleyin..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeAckModal()">İptal</button>
+                <button class="btn btn-primary" onclick="submitAcknowledge()">Onayla</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Silence Modal -->
+    <div class="modal-overlay" id="silenceModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Alarmı Sesize Al</h3>
+            </div>
+            <div class="form-group">
+                <label>Sessize Alma Süresi:</label>
+                <select id="silenceDuration">
+                    <option value="30">30 dakika</option>
+                    <option value="60">1 saat</option>
+                    <option value="180">3 saat</option>
+                    <option value="360">6 saat</option>
+                    <option value="1440">24 saat</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeSilenceModal()">İptal</button>
+                <button class="btn btn-primary" onclick="submitSilence()">Sesize Al</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toplu Sessize Al Modal -->
+    <div class="modal-overlay" id="bulkSilenceModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-bell-slash"></i> Toplu Sessize Al</h3>
+            </div>
+            <p id="bulkSilenceDesc" style="color:var(--text-light); margin-bottom:16px;"></p>
+            <div class="form-group">
+                <label>Sessize Alma Süresi:</label>
+                <select id="bulkSilenceDuration">
+                    <option value="0.5">30 dakika</option>
+                    <option value="1">1 saat</option>
+                    <option value="3">3 saat</option>
+                    <option value="6">6 saat</option>
+                    <option value="24" selected>24 saat</option>
+                    <option value="72">3 gün</option>
+                    <option value="168">1 hafta</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeBulkSilenceModal()">İptal</button>
+                <button class="btn btn-warning" onclick="confirmBulkSilence()"><i class="fas fa-bell-slash"></i> Sessize Al</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Türe Göre Kapat Modal -->
+    <div class="modal-overlay" id="closeByTypeModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-times-circle"></i> Türe Göre Kapat</h3>
+            </div>
+            <p id="closeByTypeDesc" style="color:var(--text-light); margin-bottom:16px;"></p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeCloseByTypeModal()">İptal</button>
+                <button class="btn btn-danger" onclick="confirmCloseByType()"><i class="fas fa-times-circle"></i> Kapat</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- MAC Taşıma Modal -->
+    <div class="modal-overlay" id="macMoveModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-exchange-alt"></i> MAC Adresi Taşındı</h3>
+            </div>
+            <div style="background: rgba(59,130,246,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <p style="color: var(--text);">Bu MAC adresi daha önce tespit edildi.</p>
+                <p style="margin-top: 8px;"><strong>MAC:</strong> <span id="mmMac" style="font-family: monospace; color: var(--warning);"></span></p>
+                <p style="margin-top: 8px;"><strong>Önceki Port:</strong> <span id="mmOldPort" style="color: var(--warning); font-weight: bold;"></span></p>
+                <p style="margin-top: 4px;"><strong>Yeni Port:</strong> <span id="mmNewPort" style="color: var(--success); font-weight: bold;"></span></p>
+            </div>
+            <p style="color: var(--text-light); margin-bottom: 20px;">Bu MAC adresi yeni porta taşınsın mı?</p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeMacMoveModal()"><i class="fas fa-times"></i> HAYIR</button>
+                <button class="btn btn-primary" onclick="confirmMacMove()" style="background: var(--success);"><i class="fas fa-check"></i> EVET</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Device Registry Found Modal -->
+    <div class="modal-overlay" id="deviceRegistryModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-database"></i> Cihaz Kaydı Bulundu</h3>
+            </div>
+            <!-- Red warning: shown when MAC alarm context suggests possible device/IP change -->
+            <div id="drUnregisteredWarning" style="display:none; background:rgba(220,53,69,0.12); border-left:4px solid #dc3545; color:#dc3545; padding:12px 15px; border-radius:6px; margin-bottom:14px; line-height:1.7; font-size:13px;"></div>
+            <p style="color: var(--text-light); margin-bottom: 15px;">Bu MAC Device Import listesinde mevcut. Bilgiler aşağıdadır:</p>
+            <div id="deviceRegistryInfo" style="background: rgba(16,185,129,0.1); padding: 15px; border-radius: 8px; margin-bottom: 15px; line-height: 1.8;"></div>
+            <!-- Inline edit fields (hidden by default) -->
+            <div id="deviceRegistryEdit" style="display:none; margin-bottom: 15px;">
+                <div class="form-group" style="margin-bottom:10px;">
+                    <label>IP Adresi</label>
+                    <input type="text" id="drEditIp" placeholder="Örn: 192.168.1.100">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Cihaz Adı (Hostname)</label>
+                    <input type="text" id="drEditHostname" placeholder="Örn: TEST-PC-01">
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeDeviceRegistryModal()"><i class="fas fa-times"></i> İptal</button>
+                <button class="btn btn-secondary" id="drEditBtn" onclick="toggleDeviceRegistryEdit()"><i class="fas fa-edit"></i> Düzenle</button>
+                <button class="btn btn-primary" onclick="confirmDeviceRegistry()" style="background: var(--success);"><i class="fas fa-save"></i> Onayla ve Kaydet</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- New Device Registration Modal -->
+    <div class="modal-overlay" id="newDeviceModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-plus-circle"></i> Yeni Cihaz Kaydı</h3>
+            </div>
+            <!-- Red warning: shown only when MAC is not in Device Import -->
+            <div id="ndUnregisteredWarning" style="display:none; background:rgba(220,53,69,0.12); border-left:4px solid #dc3545; color:#dc3545; padding:12px 15px; border-radius:6px; margin-bottom:14px; line-height:1.7; font-size:13px;"></div>
+            <p style="color: var(--warning); margin-bottom: 15px;"><i class="fas fa-exclamation-triangle"></i> Bu MAC adresi sistemde yeni. Cihaz kaydı yapılmadan alarm kapatılamaz.</p>
+            <p id="ndSingleMacRow" style="color: var(--text-light); margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">MAC: <span id="ndMac" style="font-family: monospace; color: var(--warning);"></span></p>
+            <div id="ndMacSelectionContainer" style="display:none; margin-bottom: 15px;"></div>
+            <div class="form-group">
+                <label>Cihaz Adı <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="ndDeviceName" placeholder="Örn: PC-MUHASEBE-01">
+            </div>
+            <div class="form-group">
+                <label>IP Adresi</label>
+                <input type="text" id="ndIpAddress" placeholder="Örn: 192.168.1.100">
+            </div>
+            <div class="form-group">
+                <label>Lokasyon</label>
+                <input type="text" id="ndLocation" placeholder="Örn: 3. Kat - Muhasebe">
+            </div>
+            <div class="form-group">
+                <label>Açıklama</label>
+                <input type="text" id="ndDescription" placeholder="Cihaz hakkında not...">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeNewDeviceModal()"><i class="fas fa-times"></i> İptal</button>
+                <button class="btn btn-primary" onclick="confirmNewDevice()" style="background: var(--success);"><i class="fas fa-save"></i> Kaydet ve Alarmı Kapat</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Alarm data loaded dynamically to avoid caching issues
+        let alarmsData = [];
+        let currentFilter = 'all';
+        let currentAlarmSearch = '';
+        let selectedAlarmId = null;
+        
+        // MAC workflow state
+        let macWorkflowData = {};
+
+        // ── Toast notification helper ─────────────────────────────────────
+        function showToast(message, type = 'info', duration = 4500) {
+            const validTypes = ['success', 'error', 'warning', 'info'];
+            const safeType = validTypes.includes(type) ? type : 'info';
+            const container = document.getElementById('paToastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'pa-toast ' + safeType;
+            const icon = safeType === 'success' ? '✅' : safeType === 'error' ? '❌' : safeType === 'warning' ? '⚠️' : 'ℹ️';
+            toast.textContent = icon + ' ' + message;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'paToastOut 0.3s ease forwards';
+                setTimeout(() => toast.remove(), 310);
+            }, duration);
+        }
+
+        // ── Confirm modal helper ──────────────────────────────────────────
+        function showConfirm(title, body) {
+            return new Promise(resolve => {
+                document.getElementById('paConfirmTitle').textContent = title;
+                document.getElementById('paConfirmBody').textContent  = body;
+                const modal  = document.getElementById('paConfirmModal');
+                const ok     = document.getElementById('paConfirmOk');
+                const cancel = document.getElementById('paConfirmCancel');
+                modal.classList.add('active');
+                const cleanup = (result) => {
+                    modal.classList.remove('active');
+                    ok.removeEventListener('click', onOk);
+                    cancel.removeEventListener('click', onCancel);
+                    resolve(result);
+                };
+                const onOk     = () => cleanup(true);
+                const onCancel = () => cleanup(false);
+                ok.addEventListener('click', onOk);
+                cancel.addEventListener('click', onCancel);
+            });
+        }
+        
+        // Load alarms from API
+        let alarmFetchController = null;  // Önceki isteği iptal etmek için
+        async function loadAlarms() {
+            // Eğer önceki bir istek hâlâ devam ediyorsa iptal et (donmayı önler)
+            if (alarmFetchController) {
+                alarmFetchController.abort();
+            }
+            alarmFetchController = new AbortController();
+            try {
+                const response = await fetch('../api/port_change_api.php?action=get_active_alarms', {
+                    signal: alarmFetchController.signal
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alarmsData = data.alarms || [];
+                    displayAlarms(alarmsData);
+                    updateStats(alarmsData);
+                } else {
+                    console.error('Failed to load alarms:', data.error || data.message);
+                }
+            } catch (error) {
+                if (error.name === 'AbortError') return;  // İptal edilen istek – normal
+                console.error('Error loading alarms:', error);
+            }
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAlarms();  // Initial load
+            
+            // Her 10 saniyede otomatik yenile (donmayı önlemek için AbortController kullanılıyor)
+            setInterval(loadAlarms, 10000);
+        });
+        
+        function displayAlarms(alarms) {
+            const container = document.getElementById('alarms-list');
+            
+            // Filter alarms based on current filter
+            let filtered = alarms;
+            if (currentFilter === 'critical') {
+                filtered = alarms.filter(a => a.severity === 'CRITICAL' && !(a.is_silenced == 1 || a.is_silenced === true));
+            } else if (currentFilter === 'high') {
+                filtered = alarms.filter(a => a.severity === 'HIGH' && !(a.is_silenced == 1 || a.is_silenced === true));
+            } else if (currentFilter === 'medium') {
+                filtered = alarms.filter(a => a.severity === 'MEDIUM' && !(a.is_silenced == 1 || a.is_silenced === true));
+            } else if (currentFilter === 'all') {
+                filtered = alarms;
+            }
+
+            // Apply text search
+            if (currentAlarmSearch) {
+                const q = currentAlarmSearch.toLowerCase();
+                filtered = filtered.filter(a =>
+                    (a.device_name && a.device_name.toLowerCase().includes(q)) ||
+                    (a.device_ip && a.device_ip.includes(q)) ||
+                    (a.mac_address && a.mac_address.toLowerCase().replace(/[^a-f0-9]/g,'').includes(q.replace(/[^a-f0-9]/g,''))) ||
+                    (a.port_number && String(a.port_number).includes(q))
+                );
+            }
+            
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-check-circle"></i>
+                        <h3>Aktif Alarm Yok</h3>
+                        <p>Tüm sistemler normal çalışıyor</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            filtered.forEach(alarm => {
+                const severityClass = alarm.severity.toLowerCase();
+                const isSilenced = alarm.is_silenced == 1 || alarm.is_silenced === true;
+                const silencedClass = isSilenced ? 'silenced' : '';
+                const silencedBadge = isSilenced ? '<span style="background: var(--text-light); color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">SESSİZDE</span>' : '';
+                
+                // Get Turkish alarm type name
+                const alarmTypeTurkish = getAlarmTypeTurkish(alarm.alarm_type, alarm);
+                
+                html += `
+                    <div class="alarm-card ${severityClass} ${silencedClass}">
+                        <div class="alarm-header">
+                            <div style="flex: 1;">
+                                <div class="alarm-title">${(() => {
+                                    const name = escapeHtml(alarm.device_name || 'Bilinmeyen Cihaz');
+                                    if (alarm.port_number) return name + ' - Port ' + alarm.port_number;
+                                    const deviceLevel = alarm.alarm_type === 'device_unreachable' || alarm.alarm_type === 'snmp_error';
+                                    return name + (deviceLevel ? ' - Cihaz' : ' - Port N/A');
+                                })()}</div>
+                            </div>
+                            <span class="alarm-severity ${severityClass}">${alarm.severity}${silencedBadge}</span>
+                        </div>
+                        
+                        <div class="alarm-info-grid">
+                            <div class="info-item">
+                                <span class="info-label">Alarm Türü:</span>
+                                <span class="info-value">${alarmTypeTurkish}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Switch IP:</span>
+                                <span class="info-value">***</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">İlk Görülme:</span>
+                                <span class="info-value">${formatDateFull(alarm.first_occurrence)}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Son Görülme:</span>
+                                <span class="info-value">${formatDateFull(alarm.last_occurrence)}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Tekrar Sayısı:</span>
+                                <span class="info-value"><strong>${alarm.occurrence_count || 1}</strong></span>
+                            </div>
+                        </div>
+                        
+                        <div class="alarm-message">${escapeHtml(maskIPs(alarm.message))}</div>
+                        
+                        ${alarm.details ? `<div class="alarm-details">${escapeHtml(alarm.details)}</div>` : ''}
+                        
+                        ${alarm.mac_address || alarm.old_value || alarm.new_value || alarm.old_vlan_id || alarm.new_vlan_id ? `
+                            <div class="alarm-additional-info">
+                                ${alarm.mac_address ? `<div><strong>MAC Address:</strong> ${alarm.mac_address}</div>` : ''}
+                                ${(() => {
+                                    const isHubAlarm = (alarm.old_value || '').includes(',') || (alarm.new_value || '').includes(',');
+                                    if (isHubAlarm) return ''; // Hub alarms: message already describes the change
+                                    return (alarm.old_value ? `<div style="word-break:break-all;overflow-wrap:break-word;"><strong>Eski Değer:</strong> ${alarm.old_value}</div>` : '') +
+                                           (alarm.new_value ? `<div style="word-break:break-all;overflow-wrap:break-word;"><strong>Yeni Değer:</strong> ${alarm.new_value}</div>` : '');
+                                })()}
+                                ${alarm.old_vlan_id ? `<div><strong>Eski VLAN ID:</strong> ${alarm.old_vlan_id}</div>` : ''}
+                                ${alarm.new_vlan_id ? `<div><strong>Yeni VLAN ID:</strong> ${alarm.new_vlan_id}</div>` : ''}
+                            </div>
+                        ` : ''}
+                        
+                        <div class="alarm-actions">
+                            ${(() => {
+                                const isHubAlarm = (alarm.old_value || '').includes(',') || (alarm.new_value || '').includes(',');
+                                const isMacAlarm = alarm.alarm_type === 'mac_moved' || alarm.alarm_type === 'mac_added' || alarm.alarm_type === 'hub_unknown_mac';
+                                if (isHubAlarm && isMacAlarm) {
+                                    return `<button class="btn" style="background: #27ae60; color: white; font-weight: bold;"
+                                        data-alarm-id="${alarm.id}"
+                                        data-device-id="${parseInt(alarm.device_id)||0}"
+                                        data-port-number="${parseInt(alarm.port_number)||0}"
+                                        data-mac-list="${escapeHtml(alarm.new_value||alarm.old_value||'')}"
+                                        data-old-mac-list="${escapeHtml(alarm.old_value||'')}"
+                                        onclick="closeHubAlarmFromBtn(this)">
+                                        <i class="fas fa-check-circle"></i> Alarm Kapat
+                                    </button>`;
+                                } else if (isMacAlarm && alarm.new_value && isValidMac(alarm.new_value)) {
+                                    return `<button class="btn" style="background: #27ae60; color: white;"
+                                        data-alarm-id="${alarm.id}"
+                                        data-new-mac="${escapeHtml(alarm.new_value||'')}"
+                                        data-device-id="${parseInt(alarm.device_id)||0}"
+                                        data-port-number="${parseInt(alarm.port_number)||0}"
+                                        data-device-name="${escapeHtml(alarm.device_name||'')}"
+                                        data-device-ip="${escapeHtml(alarm.device_ip||'')}"
+                                        data-old-mac="${escapeHtml(alarm.old_value||'')}"
+                                        onclick="startMacWorkflowFromBtn(this)">
+                                        <i class="fas fa-exchange-alt"></i> MAC İşle
+                                    </button>`;
+                                } else if (alarm.alarm_type === 'mac_moved' && alarm.mac_address) {
+                                    return `<button class="btn" style="background: #8b5cf6; color: white; font-weight: bold;"
+                                        data-alarm-id="${alarm.id}"
+                                        data-new-mac="${escapeHtml(alarm.mac_address||'')}"
+                                        data-device-id="${parseInt(alarm.device_id)||0}"
+                                        data-port-number="${parseInt(alarm.port_number)||0}"
+                                        data-device-name="${escapeHtml(alarm.device_name||'')}"
+                                        data-device-ip="${escapeHtml(alarm.device_ip||'')}"
+                                        data-old-mac="${escapeHtml(alarm.old_value||'')}"
+                                        onclick="startMacWorkflowFromBtn(this)">
+                                        <i class="fas fa-arrows-alt-h"></i> Portu Taşı
+                                    </button>`;
+                                } else {
+                                    return `<button class="btn btn-primary" onclick="openAckModal(${alarm.id})">
+                                        <i class="fas fa-check"></i> Bilgi Dahilinde Kapat
+                                    </button>`;
+                                }
+                            })()}
+                            ${isSilenced ? `
+                                <button class="btn btn-warning" onclick="unsilenceAlarm(${alarm.id})">
+                                    <i class="fas fa-bell"></i> Sessizlikten Çıkar
+                                </button>
+                            ` : `
+                                <button class="btn btn-secondary" onclick="openSilenceModal(${alarm.id})">
+                                    <i class="fas fa-bell-slash"></i> Alarmı Sesize Al
+                                </button>
+                            `}
+                            ${alarm.port_number ? `
+                                <button class="btn btn-secondary" onclick="viewPort('${alarm.device_name}', ${alarm.port_number})">
+                                    <i class="fas fa-eye"></i> Porta Git
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        function getAlarmTypeTurkish(alarmType, alarm) {
+            if (alarmType === 'mac_moved' && alarm) {
+                // "MAC Taşındı": same MAC physically moved → old_value/new_value look like port locations
+                //   e.g. "SW01 port 5"  →  "SW02 port 12"
+                // "MAC Değişti": different MAC on same port → old_value/new_value are MAC address strings
+                //   e.g. "2C:99:75:79:C1:80"  →  "B8:B4:09:4C:B3:AD"
+                const isMacAddr = v => /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test((v||'').trim());
+                const oldLooksMac = isMacAddr(alarm.old_value);
+                const newLooksMac = isMacAddr(alarm.new_value);
+                if (oldLooksMac || newLooksMac) {
+                    return 'MAC Değişti';
+                }
+            }
+            const types = {
+                'device_unreachable': 'Cihaz Erişilemez',
+                'multiple_ports_down': 'Birden Fazla Port Kapalı',
+                'mac_moved': 'MAC Taşındı',
+                'mac_added': 'MAC Eklendi',
+                'vlan_changed': 'VLAN Değişti',
+                'description_changed': 'Açıklama Değişti',
+                'port_up': 'Port Açıldı',
+                'port_down': 'Port Kapandı',
+                'snmp_error': 'SNMP Hatası'
+            };
+            return types[alarmType] || alarmType;
+        }
+        
+        function formatDateFull(dateString) {
+            if (!dateString) return 'N/A';
+            const date = new Date(dateString);
+            return date.toLocaleString('tr-TR', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+        
+        function updateStats(alarms) {
+            // Count all active alarms (including silenced)
+            const activeAlarms = alarms.filter(a => a.status === 'ACTIVE');
+            const nonSilencedAlarms = activeAlarms.filter(a => !(a.is_silenced == 1 || a.is_silenced === true));
+            
+            const critical = nonSilencedAlarms.filter(a => a.severity === 'CRITICAL').length;
+            const high = nonSilencedAlarms.filter(a => a.severity === 'HIGH').length;
+            const medium = nonSilencedAlarms.filter(a => a.severity === 'MEDIUM').length;
+            
+            document.getElementById('criticalCount').textContent = critical;
+            document.getElementById('highCount').textContent = high;
+            document.getElementById('mediumCount').textContent = medium;
+            document.getElementById('totalCount').textContent = activeAlarms.length;
+        }
+        
+        function filterAlarms(filter) {
+            currentFilter = filter;
+            
+            // Update active button
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+                // Check if this button's onclick contains the current filter
+                const onclick = btn.getAttribute('onclick');
+                if (onclick && onclick.includes(`'${filter}'`)) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            displayAlarms(alarmsData);
+        }
+
+        function applyAlarmSearch(value) {
+            currentAlarmSearch = value.trim();
+            displayAlarms(alarmsData);
+        }
+        
+        function refreshPage() {
+            loadAlarms();  // Reload alarm data instead of page
+        }
+        
+        function openAckModal(alarmId) {
+            selectedAlarmId = alarmId;
+            document.getElementById('ackModal').classList.add('active');
+        }
+        
+        function closeAckModal() {
+            document.getElementById('ackModal').classList.remove('active');
+            selectedAlarmId = null;
+        }
+        
+        function openSilenceModal(alarmId) {
+            selectedAlarmId = alarmId;
+            document.getElementById('silenceModal').classList.add('active');
+        }
+        
+        function closeSilenceModal() {
+            document.getElementById('silenceModal').classList.remove('active');
+            selectedAlarmId = null;
+        }
+        
+        async function submitAcknowledge() {
+            const ackType = document.getElementById('ackType').value;
+            const notes = document.getElementById('ackNotes').value;
+            
+            try {
+                const formData = new FormData();
+                formData.append('action', 'acknowledge_alarm');
+                formData.append('alarm_id', selectedAlarmId);
+                formData.append('ack_type', ackType); // Fixed: was 'acknowledgment_type'
+                if (notes) formData.append('note', notes); // Fixed: was 'notes'
+                
+                const response = await fetch('../api/port_change_api.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Alarm başarıyla kapatıldı', 'success');
+                    closeAckModal();
+                    // If this was a MAC-change alarm, sync Device Import data to ports
+                    const alarm = alarmsData.find(a => a.id === selectedAlarmId);
+                    if (alarm && (alarm.alarm_type === 'mac_moved' || alarm.alarm_type === 'mac_added')) {
+                        await autoApplyToPortsSilent();
+                    }
+                    loadAlarms();  // Reload alarm data instead of page
+                } else {
+                    showToast('Hata: ' + (data.error || 'Bilinmeyen hata'), 'error');
+                }
+            } catch (error) {
+                showToast('Hata: ' + error.message, 'error');
+            }
+        }
+        
+        async function submitSilence() {
+            const durationMinutes = parseInt(document.getElementById('silenceDuration').value);
+            const durationHours = durationMinutes / 60; // Convert minutes to hours
+            
+            try {
+                const formData = new FormData();
+                formData.append('action', 'silence_alarm');
+                formData.append('alarm_id', selectedAlarmId);
+                formData.append('duration_hours', durationHours); // Fixed: send hours instead of minutes
+                
+                const response = await fetch('../api/port_change_api.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Alarm başarıyla sesize alındı', 'success');
+                    closeSilenceModal();
+                    loadAlarms();  // Reload alarm data instead of page
+                } else {
+                    showToast('Hata: ' + (data.error || 'Bilinmeyen hata'), 'error');
+                }
+            } catch (error) {
+                showToast('Hata: ' + error.message, 'error');
+            }
+        }
+        
+        async function unsilenceAlarm(alarmId) {
+            const ok = await showConfirm('Sessizlikten Çıkar', 'Bu alarmı sessizlikten çıkarmak istiyor musunuz?');
+            if (!ok) {
+                return;
+            }
+            
+            try {
+                const formData = new FormData();
+                formData.append('action', 'unsilence_alarm');
+                formData.append('alarm_id', alarmId);
+                
+                const response = await fetch('../api/port_change_api.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Alarm sessizlikten çıkarıldı', 'success');
+                    loadAlarms();  // Reload alarm data instead of page
+                } else {
+                    showToast('Hata: ' + (data.error || 'Bilinmeyen hata'), 'error');
+                }
+            } catch (error) {
+                showToast('Hata: ' + error.message, 'error');
+            }
+        }
+
+        // ── Bulk / type-based silence ─────────────────────────────────────
+        let _bulkSilenceType = null;
+
+        const _silenceTypeLabels = {
+            'vlan_changed':        'VLAN Değişti',
+            'description_changed': 'Açıklama Değişti',
+            'port_down':           'Port Kapandı',
+            'port_up':             'Port Açıldı',
+            'mac_moved':           'MAC Taşındı'
+        };
+
+        function toggleSilenceTypeMenu() {
+            document.getElementById('silenceTypeMenu').classList.toggle('open');
+        }
+
+        document.addEventListener('click', function(e) {
+            const btn  = document.getElementById('silenceTypeToggle');
+            const menu = document.getElementById('silenceTypeMenu');
+            if (btn && menu && !btn.contains(e.target) && !menu.contains(e.target)) {
+                menu.classList.remove('open');
+            }
+        });
+
+        function silenceByType(alarmType) {
+            document.getElementById('silenceTypeMenu').classList.remove('open');
+            _bulkSilenceType = alarmType;
+            const label = _silenceTypeLabels[alarmType] || alarmType;
+            document.getElementById('bulkSilenceDesc').textContent =
+                '"' + label + '" türündeki TÜM aktif alarmlar sessize alınsın?';
+            document.getElementById('bulkSilenceDuration').value = '24';
+            document.getElementById('bulkSilenceModal').classList.add('active');
+        }
+
+        function closeBulkSilenceModal() {
+            document.getElementById('bulkSilenceModal').classList.remove('active');
+            _bulkSilenceType = null;
+        }
+
+        async function confirmBulkSilence() {
+            if (!_bulkSilenceType) {
+                closeBulkSilenceModal();
+                return;
+            }
+            const h = parseFloat(document.getElementById('bulkSilenceDuration').value) || 24;
+            closeBulkSilenceModal();
+            try {
+                const formData = new FormData();
+                formData.append('action', 'bulk_silence');
+                formData.append('duration', h);
+                if (_bulkSilenceType) formData.append('alarm_type', _bulkSilenceType);
+
+                const response = await fetch('../api/port_change_api.php', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadAlarms();
+                } else {
+                    showToast('Hata: ' + (data.error || 'Sessize alma başarısız'), 'error');
+                }
+            } catch (error) {
+                showToast('Hata: ' + error.message, 'error');
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────
+
+        // ── Türe Göre Kapat ───────────────────────────────────────────────
+        let _closeByType = null;
+
+        const _closeTypeLabels = {
+            'port_down': 'Port Kapandı',
+            'port_up':   'Port Açıldı'
+        };
+
+        function toggleCloseTypeMenu() {
+            document.getElementById('closeTypeMenu').classList.toggle('open');
+        }
+
+        document.addEventListener('click', function(e) {
+            const btn  = document.getElementById('closeTypeToggle');
+            const menu = document.getElementById('closeTypeMenu');
+            if (btn && menu && !btn.contains(e.target) && !menu.contains(e.target)) {
+                menu.classList.remove('open');
+            }
+        });
+
+        function closeByType(alarmType) {
+            document.getElementById('closeTypeMenu').classList.remove('open');
+            _closeByType = alarmType;
+            const label = _closeTypeLabels[alarmType] || alarmType;
+            document.getElementById('closeByTypeDesc').textContent =
+                '"' + label + '" türündeki TÜM aktif alarmlar kapatılsın?';
+            document.getElementById('closeByTypeModal').classList.add('active');
+        }
+
+        function closeCloseByTypeModal() {
+            document.getElementById('closeByTypeModal').classList.remove('active');
+            _closeByType = null;
+        }
+
+        async function confirmCloseByType() {
+            if (!_closeByType) {
+                closeCloseByTypeModal();
+                return;
+            }
+            const type = _closeByType;
+            closeCloseByTypeModal();
+            try {
+                const formData = new FormData();
+                formData.append('action', 'bulk_close_by_type');
+                formData.append('alarm_type', type);
+
+                const response = await fetch('../api/port_change_api.php', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadAlarms();
+                } else {
+                    showToast('Hata: ' + (data.error || 'Kapatma başarısız'), 'error');
+                }
+            } catch (error) {
+                showToast('Hata: ' + error.message, 'error');
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────
+
+        function viewPort(deviceName, portNumber) {
+            // Check if we're in an iframe
+            if (window.parent !== window) {
+                // We're in an iframe - communicate with parent
+                window.parent.postMessage({
+                    action: 'navigateToPort',
+                    switchName: deviceName,
+                    portNumber: portNumber
+                }, '*');
+            } else {
+                // Standalone mode - navigate directly
+                window.location.href = `../index.php?switch=${encodeURIComponent(deviceName)}&port=${portNumber}`;
+            }
+        }
+        
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            const date = new Date(dateString);
+            return date.toLocaleString('tr-TR', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Returns true only for strings that look like a real MAC address.
+        // Rejects switch-name+port strings like "SW8-MARKETING port 40".
+        function isValidMac(value) {
+            if (!value) return false;
+            const clean = value.replace(/[:\-. ]/g, '');
+            // Must be 12 hex chars (after stripping common MAC separators)
+            return /^[0-9a-fA-F]{12}$/.test(clean);
+        }
+
+        function maskIPs(text) {
+            if (!text) return text;
+            return text.replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, '***');
+        }
+        
+        // Close modals when clicking outside
+        document.querySelectorAll('.modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    this.classList.remove('active');
+                    selectedAlarmId = null;
+                }
+            });
+        });
+        
+        // ─────────────────────────────────────────────────────────────────
+        //  MAC WORKFLOW
+        // ─────────────────────────────────────────────────────────────────
+
+        function closeHubAlarmFromBtn(btn) {
+            closeHubAlarmPA(
+                parseInt(btn.dataset.alarmId),
+                btn.dataset.macList || '',
+                parseInt(btn.dataset.deviceId) || 0,
+                parseInt(btn.dataset.portNumber) || 0,
+                btn.dataset.oldMacList || ''
+            );
+        }
+
+        async function closeHubAlarmPA(alarmId, macList, deviceId, portNumber, oldMacList) {
+            // If no MAC list provided, just close alarm directly (legacy fallback)
+            if (!macList) {
+                return _doCloseHubAlarm(alarmId);
+            }
+
+            try {
+                const allMacs = macList.split(',').map(m => m.trim()).filter(Boolean);
+                // Only check MACs that are new (in new_value but not old_value) to
+                // avoid making 60+ registry API calls for large JACKPOT hub ports.
+                const oldMacs = new Set((oldMacList || '').split(',').map(m => m.trim()).filter(Boolean));
+                const newlyAddedMacs = allMacs.filter(m => !oldMacs.has(m));
+                const macsToCheck = newlyAddedMacs.length > 0 ? newlyAddedMacs : allMacs;
+
+                const unregistered = [];
+                // Batch check — single request instead of N sequential ones
+                if (macsToCheck.length > 0) {
+                    const batchResp = await fetch(
+                        `../api/port_change_api.php?action=check_multiple_macs_in_registry&mac_addresses=${encodeURIComponent(macsToCheck.join(','))}`
+                    );
+                    const batchData = await batchResp.json();
+                    if (batchData.success && batchData.results) {
+                        for (const mac of macsToCheck) {
+                            if (!batchData.results[mac.toUpperCase()]) unregistered.push(mac);
+                        }
+                    } else {
+                        unregistered.push(...macsToCheck);
+                    }
+                }
+
+                if (unregistered.length === 0) {
+                    // All checked MACs registered — just close the alarm
+                    return _doCloseHubAlarm(alarmId);
+                }
+
+                // Prepare workflow data so the registration modal can close the alarm afterwards
+                macWorkflowData = { alarmId, newMac: allMacs.join(','), deviceId, portNumber };
+
+                if (unregistered.length === 1) {
+                    await checkMacInRegistry(unregistered[0]);
+                } else {
+                    // Show selectable list of unregistered MACs
+                    const selContainer = document.getElementById('ndMacSelectionContainer');
+                    const singleMacRow = document.getElementById('ndSingleMacRow');
+                    if (selContainer) {
+                        selContainer.style.display = 'block';
+                        selContainer.innerHTML = `<p style="color: var(--text-light); margin-bottom: 8px;"><strong>Kayıtsız MAC Adresleri — Kaydetmek istediğinizi seçin:</strong></p>` +
+                            unregistered.map(mac => {
+                                const safeMac = mac.replace(/[^0-9A-Fa-f:]/g, '');
+                                return `<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;">
+                                    <input type="radio" name="ndMacChoice" value="${safeMac}">
+                                    <code style="font-size:0.9em;">${safeMac}</code>
+                                </label>`;
+                            }).join('');
+                        const first = selContainer.querySelector('input[type=radio]');
+                        if (first) first.checked = true;
+                    }
+                    if (singleMacRow) singleMacRow.style.display = 'none';
+                    document.getElementById('ndDeviceName').value  = '';
+                    document.getElementById('ndIpAddress').value   = '';
+                    document.getElementById('ndLocation').value    = '';
+                    document.getElementById('ndDescription').value = '';
+                    document.getElementById('newDeviceModal').classList.add('active');
+                }
+            } catch (err) {
+                showToast('Hata: ' + err.message, 'error');
+            }
+        }
+
+        async function _doCloseHubAlarm(alarmId) {
+            try {
+                const formData = new FormData();
+                formData.append('action', 'acknowledge_alarm');
+                formData.append('alarm_id', alarmId);
+                formData.append('ack_type', 'known_change');
+                formData.append('note', 'Hub MAC değişikliği kabul edildi');
+                const response = await fetch('../api/port_change_api.php', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.success) {
+                    loadAlarms();
+                    showToast('Alarm kapatıldı', 'success');
+                } else {
+                    showToast('Hata: ' + (data.error || 'İşlem başarısız'), 'error');
+                }
+            } catch (err) {
+                showToast('Hata: ' + err.message, 'error');
+            }
+        }
+
+        function startMacWorkflowFromBtn(btn) {
+            startMacWorkflow(
+                parseInt(btn.dataset.alarmId),
+                btn.dataset.newMac,
+                parseInt(btn.dataset.deviceId),
+                parseInt(btn.dataset.portNumber),
+                btn.dataset.deviceName,
+                btn.dataset.deviceIp,
+                btn.dataset.oldMac
+            );
+        }
+
+        async function startMacWorkflow(alarmId, newMac, deviceId, portNumber, deviceName, deviceIp, oldMac) {
+            macWorkflowData = { alarmId, newMac, deviceId, portNumber, deviceName, deviceIp, oldMac };
+
+            // If newMac is a comma-separated list, handle multi-MAC workflow
+            const macs = (newMac || '').split(',').map(m => m.trim()).filter(Boolean);
+            if (macs.length > 1) {
+                await checkMultiMacWorkflowPA(macs);
+                return;
+            }
+
+            try {
+                const resp = await fetch(
+                    `../api/port_change_api.php?action=check_mac_previous_port&device_id=${deviceId}&mac_address=${encodeURIComponent(newMac)}&port_number=${portNumber}`
+                );
+                const data = await resp.json();
+                if (data.success && data.found) {
+                    macWorkflowData.previousPort = data.previous_port;
+                    document.getElementById('mmMac').textContent     = newMac;
+                    document.getElementById('mmOldPort').textContent = data.previous_port;
+                    document.getElementById('mmNewPort').textContent = portNumber;
+                    document.getElementById('macMoveModal').classList.add('active');
+                } else {
+                    await checkMacInRegistry(newMac);
+                }
+            } catch (err) {
+                showToast('Hata: ' + err.message, 'error');
+            }
+        }
+
+        async function checkMultiMacWorkflowPA(macs) {
+            try {
+                // Batch check — single request instead of N sequential ones
+                const unregistered = [];
+                if (macs.length > 0) {
+                    const batchResp = await fetch(
+                        `../api/port_change_api.php?action=check_multiple_macs_in_registry&mac_addresses=${encodeURIComponent(macs.join(','))}`
+                    );
+                    const batchData = await batchResp.json();
+                    if (batchData.success && batchData.results) {
+                        for (const mac of macs) {
+                            if (!batchData.results[mac.toUpperCase()]) unregistered.push(mac);
+                        }
+                    } else {
+                        unregistered.push(...macs);
+                    }
+                }
+                if (unregistered.length === 0) {
+                    openAckModal(macWorkflowData.alarmId);
+                    return;
+                }
+                if (unregistered.length === 1) {
+                    await checkMacInRegistry(unregistered[0]);
+                    return;
+                }
+                // Show selection in the new device modal
+                const selContainer = document.getElementById('ndMacSelectionContainer');
+                const singleMacRow = document.getElementById('ndSingleMacRow');
+                if (selContainer) {
+                    selContainer.style.display = 'block';
+                    selContainer.innerHTML = `<p style="color: var(--text-light); margin-bottom: 8px;"><strong>Kayıtsız MAC Adresleri — Kaydetmek istediğinizi seçin:</strong></p>` +
+                        unregistered.map(mac => {
+                        const safeMac = mac.replace(/[^0-9A-Fa-f:]/g, ''); // only valid MAC chars
+                        return `<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;">
+                            <input type="radio" name="ndMacChoice" value="${safeMac}">
+                            <code style="font-size:0.9em;">${safeMac}</code>
+                        </label>`;
+                    }).join('');
+                    const first = selContainer.querySelector('input[type=radio]');
+                    if (first) first.checked = true;
+                }
+                if (singleMacRow) singleMacRow.style.display = 'none';
+                document.getElementById('ndDeviceName').value  = '';
+                document.getElementById('ndIpAddress').value   = '';
+                document.getElementById('ndLocation').value    = '';
+                document.getElementById('ndDescription').value = '';
+                document.getElementById('newDeviceModal').classList.add('active');
+            } catch (err) {
+                showToast('Hata: ' + err.message, 'error');
+            }
+        }
+
+        async function checkMacInRegistry(mac) {
+            try {
+                const resp = await fetch(
+                    `../api/port_change_api.php?action=check_device_in_registry&mac_address=${encodeURIComponent(mac)}`
+                );
+                const data = await resp.json();
+                if (data.success && data.found) {
+                    const d = data.device;
+                    let html = '';
+                    if (d.device_name) html += `<div><strong>Cihaz Adı:</strong> ${escapeHtml(d.device_name)}</div>`;
+                    if (d.ip_address)  html += `<div style="margin-top:4px;"><strong>IP:</strong> ${escapeHtml(d.ip_address)}</div>`;
+                    document.getElementById('deviceRegistryInfo').innerHTML = html || '<div>Kayıt bulundu.</div>';
+                    // Pre-fill edit fields and reset edit panel
+                    document.getElementById('drEditIp').value       = d.ip_address  || '';
+                    document.getElementById('drEditHostname').value = d.device_name || '';
+                    document.getElementById('deviceRegistryEdit').style.display = 'none';
+                    document.getElementById('drEditBtn').innerHTML  = '<i class="fas fa-edit"></i> Düzenle';
+                    macWorkflowData.registryDevice = d;
+                    // Show domain warning — the alarm context may indicate a device/IP change
+                    const drWarn = document.getElementById('drUnregisteredWarning');
+                    if (drWarn) {
+                        const oldMac = macWorkflowData.oldMac || '';
+                        drWarn.style.display = 'block';
+                        drWarn.innerHTML =
+                            `<i class="fas fa-exclamation-triangle"></i> <strong>Mac Domainden kontrol edin!</strong><br>` +
+                            (oldMac ? `Önceki MAC: <code>${escapeHtml(oldMac)}</code><br>` : '') +
+                            `<strong>Cihaz Adı</strong> ve <strong>IP</strong> değişimi olabilir — lütfen domain/Active Directory üzerinden kontrol edin.`;
+                    }
+                    document.getElementById('deviceRegistryModal').classList.add('active');
+                } else {
+                    const selContainer = document.getElementById('ndMacSelectionContainer');
+                    const singleMacRow = document.getElementById('ndSingleMacRow');
+                    if (selContainer) selContainer.style.display = 'none';
+                    if (singleMacRow) singleMacRow.style.display = 'flex';
+                    document.getElementById('ndMac').textContent = mac;
+                    document.getElementById('ndDeviceName').value  = '';
+                    document.getElementById('ndIpAddress').value   = '';
+                    document.getElementById('ndLocation').value    = '';
+                    document.getElementById('ndDescription').value = '';
+                    // Show red warning — MAC not in Device Import
+                    const warnEl = document.getElementById('ndUnregisteredWarning');
+                    if (warnEl) {
+                        // Pull old MAC/info from the current workflow context
+                        const oldMac = macWorkflowData.oldMac || '';
+                        warnEl.style.display = 'block';
+                        warnEl.innerHTML =
+                            `<i class="fas fa-exclamation-triangle"></i> <strong>Mac Domainden kontrol edin!</strong><br>` +
+                            `Bu MAC adresi (<code>${escapeHtml(mac)}</code>) Device Import listesinde <strong>kayıtlı değil</strong>.<br>` +
+                            (oldMac ? `Önceki MAC: <code>${escapeHtml(oldMac)}</code><br>` : '') +
+                            `<strong>Cihaz Adı</strong> ve <strong>IP</strong> değişimi olabilir — lütfen domain/Active Directory üzerinden kontrol edin.`;
+                    }
+                    document.getElementById('newDeviceModal').classList.add('active');
+                }
+            } catch (err) {
+                showToast('Hata: ' + err.message, 'error');
+            }
+        }
+
+        function closeMacMoveModal() {
+            document.getElementById('macMoveModal').classList.remove('active');
+        }
+
+        async function confirmMacMove() {
+            const { alarmId, newMac, deviceId, portNumber, previousPort } = macWorkflowData;
+            closeMacMoveModal();
+            try {
+                const resp = await fetch('../api/port_change_api.php?action=move_mac_to_port', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ alarm_id: alarmId, mac_address: newMac, device_id: deviceId, old_port: previousPort, new_port: portNumber })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(data.message || 'MAC porta taşındı ve alarm kapatıldı.', 'success');
+                    if (data.port_rows_updated === 0) {
+                        showToast('⚠️ Alarm kapatıldı ancak ports.mac kaydedilemedi (port satırı bulunamadı). Python worker sonraki döngüde whitelist üzerinden otomatik düzeltecek.', 'warning', 8000);
+                    }
+                    await autoApplyToPortsSilent();
+                    loadAlarms();
+                } else { showToast('Hata: ' + (data.error || 'İşlem başarısız'), 'error'); }
+            } catch (err) { showToast('Hata: ' + err.message, 'error'); }
+        }
+
+        function closeDeviceRegistryModal() {
+            document.getElementById('deviceRegistryModal').classList.remove('active');
+            const drWarn = document.getElementById('drUnregisteredWarning');
+            if (drWarn) { drWarn.style.display = 'none'; drWarn.innerHTML = ''; }
+        }
+
+        function toggleDeviceRegistryEdit() {
+            const editDiv = document.getElementById('deviceRegistryEdit');
+            const btn     = document.getElementById('drEditBtn');
+            if (editDiv.style.display === 'none') {
+                editDiv.style.display = 'block';
+                btn.innerHTML = '<i class="fas fa-eye"></i> Gizle';
+            } else {
+                editDiv.style.display = 'none';
+                btn.innerHTML = '<i class="fas fa-edit"></i> Düzenle';
+            }
+        }
+
+        async function confirmDeviceRegistry() {
+            const { alarmId, newMac, deviceId, portNumber, registryDevice } = macWorkflowData;
+            // Use edited values if edit panel is open, otherwise use registry values
+            const editDiv    = document.getElementById('deviceRegistryEdit');
+            const useEdited  = editDiv.style.display !== 'none';
+            const ip         = useEdited ? document.getElementById('drEditIp').value.trim()       : (registryDevice ? registryDevice.ip_address  : '');
+            const deviceName = useEdited ? document.getElementById('drEditHostname').value.trim() : (registryDevice ? registryDevice.device_name : '');
+            // Basic client-side validation when edit panel is open
+            if (useEdited) {
+                if (ip && !/^[\d.a-fA-F:]+$/.test(ip)) {
+                    showToast('Geçersiz IP adresi formatı', 'error');
+                    return;
+                }
+                if (deviceName && deviceName.length > 128) {
+                    showToast('Cihaz adı çok uzun (max 128 karakter)', 'error');
+                    return;
+                }
+            }
+            closeDeviceRegistryModal();
+            try {
+                const resp = await fetch('../api/port_change_api.php?action=register_device_for_alarm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        alarm_id: alarmId, mac_address: newMac, device_id: deviceId, port_number: portNumber,
+                        device_name: deviceName,
+                        ip_address:  ip,
+                        location:    registryDevice ? registryDevice.location : '',
+                        description: registryDevice ? registryDevice.notes    : ''
+                    })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(data.message || 'Cihaz kaydedildi ve alarm kapatıldı.', 'success');
+                    if (data.port_rows_updated === 0) {
+                        showToast('⚠️ Alarm kapatıldı ancak ports.mac kaydedilemedi (port satırı bulunamadı). Python worker sonraki döngüde whitelist üzerinden otomatik düzeltecek.', 'warning', 8000);
+                    }
+                    await autoApplyToPortsSilent();
+                    loadAlarms();
+                } else { showToast('Hata: ' + (data.error || 'İşlem başarısız'), 'error'); }
+            } catch (err) { showToast('Hata: ' + err.message, 'error'); }
+        }
+
+        function closeNewDeviceModal() {
+            document.getElementById('newDeviceModal').classList.remove('active');
+            // Reset the unregistered-MAC warning so it doesn't persist for next open
+            const warnEl = document.getElementById('ndUnregisteredWarning');
+            if (warnEl) { warnEl.style.display = 'none'; warnEl.innerHTML = ''; }
+        }
+
+        async function confirmNewDevice() {
+            const { alarmId, deviceId, portNumber } = macWorkflowData;
+            const deviceName = document.getElementById('ndDeviceName').value.trim();
+            if (!deviceName) { showToast('Cihaz Adı zorunludur!', 'error'); return; }
+            // Determine which MAC to register
+            let macToRegister = macWorkflowData.newMac;
+            const selContainer = document.getElementById('ndMacSelectionContainer');
+            if (selContainer && selContainer.style.display !== 'none') {
+                const selectedRadio = selContainer.querySelector('input[name="ndMacChoice"]:checked');
+                if (selectedRadio) {
+                    macToRegister = selectedRadio.value;
+                } else { showToast('Lütfen bir MAC adresi seçin!', 'error'); return; }
+            } else {
+                macToRegister = document.getElementById('ndMac').textContent.trim() || macWorkflowData.newMac;
+            }
+            closeNewDeviceModal();
+            try {
+                const resp = await fetch('../api/port_change_api.php?action=register_device_for_alarm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        alarm_id: alarmId, mac_address: macToRegister, device_id: deviceId, port_number: portNumber,
+                        device_name: deviceName,
+                        ip_address:  document.getElementById('ndIpAddress').value.trim(),
+                        location:    document.getElementById('ndLocation').value.trim(),
+                        description: document.getElementById('ndDescription').value.trim()
+                    })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(data.message || 'Cihaz kaydedildi ve alarm kapatıldı.', 'success');
+                    if (data.port_rows_updated === 0) {
+                        showToast('⚠️ Alarm kapatıldı ancak ports.mac kaydedilemedi (port satırı bulunamadı). Python worker sonraki döngüde whitelist üzerinden otomatik düzeltecek.', 'warning', 8000);
+                    }
+                    await autoApplyToPortsSilent();
+                    loadAlarms();
+                } else { showToast('Hata: ' + (data.error || 'İşlem başarısız'), 'error'); }
+            } catch (err) { showToast('Hata: ' + err.message, 'error'); }
+        }
+
+        // Silently applies Device Import registry data to all matching ports.
+        // Called automatically after any MAC change alarm is closed.
+        async function autoApplyToPortsSilent() {
+            try {
+                const resp = await fetch('../api/device_import_api.php?action=apply_to_ports', { method: 'POST' });
+                if (!resp.ok) {
+                    console.warn('autoApplyToPortsSilent HTTP hatası:', resp.status, resp.statusText);
+                    return;
+                }
+                const data = await resp.json();
+                if (!data.success) {
+                    console.warn('autoApplyToPortsSilent API hatası:', data.error || 'Bilinmeyen hata');
+                }
+            } catch (err) {
+                console.warn('autoApplyToPortsSilent hatası:', err);
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────
+    </script>
+</body>
+</html>
