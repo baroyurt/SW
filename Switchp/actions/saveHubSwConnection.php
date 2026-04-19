@@ -1,6 +1,10 @@
 <?php
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
 header('Content-Type: application/json; charset=utf-8');
+
+$auth = new Auth($conn);
+$auth->requireLogin();
 
 // Ensure table exists
 $conn->query("IF OBJECT_ID('dbo.hub_sw_port_connections','U') IS NULL

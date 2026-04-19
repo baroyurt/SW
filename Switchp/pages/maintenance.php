@@ -8,28 +8,27 @@
 $activeWindow = null;
 if (file_exists(__DIR__ . '/../db.php')) {
     include_once __DIR__ . '/../db.php';
-    if (isset($conn) && $conn instanceof mysqli) {
-        // Ensure table exists (lightweight – only runs CREATE TABLE IF NOT EXISTS)
-        $conn->query("CREATE TABLE IF NOT EXISTS maintenance_windows (
-            id           INT AUTO_INCREMENT PRIMARY KEY,
-            title        VARCHAR(255)  NOT NULL,
-            description  TEXT          DEFAULT NULL,
-            start_time   DATETIME      NOT NULL,
-            end_time     DATETIME      NOT NULL,
-            created_by   VARCHAR(100)  DEFAULT NULL,
-            is_active    TINYINT(1)    NOT NULL DEFAULT 1,
-            notify_users TINYINT(1)    NOT NULL DEFAULT 0,
-            created_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
-            updated_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_mw_times (start_time, end_time),
-            INDEX idx_mw_active (is_active)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    if (isset($conn) && $conn instanceof MysqliPdoConn) {
+        // Ensure table exists
+        $conn->query("IF OBJECT_ID(N'maintenance_windows', 'U') IS NULL
+            CREATE TABLE maintenance_windows (
+                id           INT IDENTITY(1,1) PRIMARY KEY,
+                title        NVARCHAR(255) NOT NULL,
+                description  NVARCHAR(MAX) DEFAULT NULL,
+                start_time   DATETIME2     NOT NULL,
+                end_time     DATETIME2     NOT NULL,
+                created_by   NVARCHAR(100) DEFAULT NULL,
+                is_active    BIT           NOT NULL DEFAULT 1,
+                notify_users BIT           NOT NULL DEFAULT 0,
+                created_at   DATETIME2     DEFAULT GETDATE(),
+                updated_at   DATETIME2     DEFAULT GETDATE()
+            )");
 
         $now  = date('Y-m-d H:i:s');
         $stmt = $conn->prepare(
-            "SELECT * FROM maintenance_windows
+            "SELECT TOP 1 * FROM maintenance_windows
              WHERE is_active = 1 AND start_time <= ? AND end_time >= ?
-             ORDER BY start_time DESC LIMIT 1"
+             ORDER BY start_time DESC"
         );
         if ($stmt) {
             $stmt->bind_param('ss', $now, $now);

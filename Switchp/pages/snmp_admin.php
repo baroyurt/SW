@@ -12,7 +12,11 @@ if (!$auth->isLoggedIn()) {
     exit();
 }
 
-// YAML parser for PHP
+// Admin role required for SNMP administration
+if (!$auth->isAdmin()) {
+    header('Location: ../index.php?error=admin_required');
+    exit();
+}
 function parseYamlConfig($filename) {
     if (!file_exists($filename)) {
         return null;

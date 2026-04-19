@@ -7,9 +7,18 @@ header('Content-Type: application/json');
 $auth = new Auth($conn);
 $auth->requireLogin();
 
+// All mutating backup actions must come via POST to prevent CSRF via GET/link
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'status' => 'error', 'message' => 'Geçersiz istek metodu.']);
+    $conn->close();
+    exit;
+}
+
 try {
-    $action = $_REQUEST['action'] ?? '';
-    $backupName = $_REQUEST['name'] ?? '';
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    $action = $input['action'] ?? '';
+    $backupName = $input['name'] ?? '';
     
     if ($action === 'create') {
         // Tüm verileri al
@@ -70,7 +79,7 @@ try {
         ]);
         
     } elseif ($action === 'restore') {
-        $filename = isset($_REQUEST['file']) ? 'backups/' . basename($_REQUEST['file']) : '';
+        $filename = isset($input['file']) ? 'backups/' . basename($input['file']) : '';
         
         // Ensure file is within the backups directory
         $backupDir = realpath('backups');
@@ -80,35 +89,54 @@ try {
         }
         
         $backupData = json_decode(file_get_contents($filename), true);
-        
-        // Veritabanını temizle
-        $conn->query("SET FOREIGN_KEY_CHECKS = 0");
-        $conn->query("TRUNCATE TABLE ports");
-        $conn->query("TRUNCATE TABLE switches");
-        $conn->query("TRUNCATE TABLE racks");
-        $conn->query("SET FOREIGN_KEY_CHECKS = 1");
-        
-        // Rack'leri geri yükle
-        foreach ($backupData['data']['racks'] as $rack) {
-            $stmt = $conn->prepare("INSERT INTO racks (id, name, location, description, slots) VALUES (?,?,?,?,?)");
-            $stmt->bind_param("isssi", $rack['id'], $rack['name'], $rack['location'], $rack['description'], $rack['slots']);
-            $stmt->execute();
+
+        // Restore inside a transaction so a partial failure leaves DB unchanged.
+        // PDO is configured with ERRMODE_EXCEPTION, so any failed query throws
+        // and is caught by the inner catch block which rolls back the transaction.
+        $conn->begin_transaction();
+        try {
+            // Disable FK constraints (SQL Server syntax)
+            $conn->query("ALTER TABLE ports    NOCHECK CONSTRAINT ALL");
+            $conn->query("ALTER TABLE switches NOCHECK CONSTRAINT ALL");
+            $conn->query("ALTER TABLE racks    NOCHECK CONSTRAINT ALL");
+
+            // Delete in dependency order (child → parent)
+            $conn->query("DELETE FROM ports");
+            $conn->query("DELETE FROM switches");
+            $conn->query("DELETE FROM racks");
+
+            // Re-enable FK constraints
+            $conn->query("ALTER TABLE racks    CHECK CONSTRAINT ALL");
+            $conn->query("ALTER TABLE switches CHECK CONSTRAINT ALL");
+            $conn->query("ALTER TABLE ports    CHECK CONSTRAINT ALL");
+
+            // Rack'leri geri yükle
+            foreach ($backupData['data']['racks'] as $rack) {
+                $stmt = $conn->prepare("INSERT INTO racks (id, name, location, description, slots) VALUES (?,?,?,?,?)");
+                $stmt->bind_param("isssi", $rack['id'], $rack['name'], $rack['location'], $rack['description'], $rack['slots']);
+                $stmt->execute();
+            }
+
+            // Switch'leri geri yükle
+            foreach ($backupData['data']['switches'] as $switch) {
+                $stmt = $conn->prepare("INSERT INTO switches (id, name, brand, model, ports, status, rack_id, ip) VALUES (?,?,?,?,?,?,?,?)");
+                $stmt->bind_param("isssisii", $switch['id'], $switch['name'], $switch['brand'], $switch['model'], $switch['ports'], $switch['status'], $switch['rack_id'], $switch['ip']);
+                $stmt->execute();
+            }
+
+            // Portları geri yükle
+            foreach ($backupData['data']['ports'] as $port) {
+                $stmt = $conn->prepare("INSERT INTO ports (id, switch_id, port_no, type, device, ip, mac, rack_port) VALUES (?,?,?,?,?,?,?,?)");
+                $stmt->bind_param("iiissssi", $port['id'], $port['switch_id'], $port['port_no'], $port['type'], $port['device'], $port['ip'], $port['mac'], $port['rack_port']);
+                $stmt->execute();
+            }
+
+            $conn->commit();
+        } catch (Exception $restoreEx) {
+            $conn->rollback();
+            throw $restoreEx;
         }
-        
-        // Switch'leri geri yükle
-        foreach ($backupData['data']['switches'] as $switch) {
-            $stmt = $conn->prepare("INSERT INTO switches (id, name, brand, model, ports, status, rack_id, ip) VALUES (?,?,?,?,?,?,?,?)");
-            $stmt->bind_param("isssisii", $switch['id'], $switch['name'], $switch['brand'], $switch['model'], $switch['ports'], $switch['status'], $switch['rack_id'], $switch['ip']);
-            $stmt->execute();
-        }
-        
-        // Portları geri yükle
-        foreach ($backupData['data']['ports'] as $port) {
-            $stmt = $conn->prepare("INSERT INTO ports (id, switch_id, port_no, type, device, ip, mac, rack_port) VALUES (?,?,?,?,?,?,?,?)");
-            $stmt->bind_param("iiissssi", $port['id'], $port['switch_id'], $port['port_no'], $port['type'], $port['device'], $port['ip'], $port['mac'], $port['rack_port']);
-            $stmt->execute();
-        }
-        
+
         echo json_encode([
             'success' => true,
             'status' => 'ok',

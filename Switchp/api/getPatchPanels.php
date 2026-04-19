@@ -30,6 +30,13 @@ try {
     jsonResponse(false, 'DB bağlantı hatası: ' . $e->getMessage());
 }
 
+require_once __DIR__ . '/../auth.php';
+$auth = new Auth($conn);
+if (!$auth->isLoggedIn()) {
+    http_response_code(401);
+    jsonResponse(false, 'Unauthorized');
+}
+
 // Input al
 $input = file_get_contents("php://input");
 

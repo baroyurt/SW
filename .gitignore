@@ -1,0 +1,54 @@
+# ── Sensitive configuration (contains credentials) ──────────────────────────
+# Copy config.example.yml → config.yml and fill in real values locally.
+# NEVER commit the live config.yml.
+Switchp/snmp_worker/config/config.yml
+
+# Keep the example template in source control
+!Switchp/snmp_worker/config/config.example.yml
+
+# ── Python artifacts ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# dotenv – may contain SMTP_PASSWORD, SNMP_AUTH_PASSWORD, etc.
+.env
+.env.*
+!.env.example
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+Switchp/logs/
+Switchp/snmp_worker/logs/
+Switchp/port_update_errors.log
+Switchp/fiber_panel_errors.log
+Switchp/port_panel_sync.log
+
+# ── Backups / exports ─────────────────────────────────────────────────────────
+Switchp/backups/
+*.csv
+*.xlsx
+*.xls
+
+# ── OS & editor artifacts ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

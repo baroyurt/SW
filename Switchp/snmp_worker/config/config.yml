@@ -14,6 +14,8 @@ database:
   max_overflow: 20
 
 # Global SNMP Configuration
+# Sensitive values can be overridden with environment variables:
+#   SNMP_AUTH_PASSWORD, SNMP_PRIV_PASSWORD
 snmp:
   version: "3"
   username: "snmpuser"
@@ -88,9 +90,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123"
+      auth_password: "AuthPass123!"
       priv_protocol: "AES"
-      priv_password: "PrivPass123"
+      priv_password: "PrivPass123!"
 
   - name: "SW24-BALO"
     host: "172.18.1.225"
@@ -725,7 +727,7 @@ email:
   smtp_host: "smtp.yandex.com"
   smtp_port: 465
   smtp_user: "destek@chamadaprestige.com"
-  smtp_password: "yjaixkhyxewtuguq"
+  smtp_password: ""  # Set via SMTP_PASSWORD env var
   from_address: "destek@chamadaprestige.com"
   to_addresses:
     - "baris.yurtlak@chamadaprestige.com"
@@ -752,7 +754,7 @@ domain_server:
   ldap_host: "dc.company.local"  # Domain controller hostname or IP
   ldap_port: 389  # 389 for LDAP, 636 for LDAPS
   ldap_user: "DOMAIN\\administrator"  # Domain user with read permissions
-  ldap_password: "YourPassword123"  # User password
+  ldap_password: ""  # Set via LDAP_PASSWORD env var
   ldap_base_dn: ""  # Auto-detected if empty, e.g., "DC=company,DC=local"
   
   # DHCP Server Configuration

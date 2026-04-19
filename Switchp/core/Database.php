@@ -10,6 +10,7 @@ class Database {
     private MysqliPdoConn $conn;
     private bool $inTransaction    = false;
     private int  $savepointCounter = 0;
+    private array $savepointStack  = [];
 
     private function __construct() {
         $cfg    = Config::get();
@@ -52,6 +53,7 @@ class Database {
             $this->conn->begin_transaction();
             $this->inTransaction    = true;
             $this->savepointCounter = 0;
+            $this->savepointStack   = [];
             return;
         }
         $this->createSavepoint();
@@ -60,6 +62,7 @@ class Database {
     public function commit(): void {
         if ($this->savepointCounter > 0) {
             $this->savepointCounter--;
+            array_pop($this->savepointStack);
             return;
         }
         if ($this->inTransaction) {
@@ -72,6 +75,7 @@ class Database {
         if ($this->savepointCounter > 0) {
             $this->rollbackToSavepoint();
             $this->savepointCounter--;
+            array_pop($this->savepointStack);
             return;
         }
         if ($this->inTransaction) {
@@ -83,13 +87,17 @@ class Database {
     public function createSavepoint(): string {
         $this->savepointCounter++;
         $name = 'SP_' . $this->savepointCounter . '_' . time();
+        $this->savepointStack[] = $name;
         $this->conn->query("SAVE TRANSACTION [{$name}]");
         return $name;
     }
 
     public function rollbackToSavepoint(?string $name = null): void {
         if ($name === null) {
-            $name = 'SP_' . $this->savepointCounter . '_' . time();
+            if (empty($this->savepointStack)) {
+                throw new \LogicException('No active savepoint to roll back to.');
+            }
+            $name = end($this->savepointStack);
         }
         $this->conn->query("ROLLBACK TRANSACTION [{$name}]");
     }

@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../auth.php';
 require_once __DIR__ . '/../core/email_template.php';
+require_once __DIR__ . '/../core/EmailService.php';
 
 $auth = new Auth($conn);
 $auth->requireLogin();
@@ -197,88 +198,12 @@ $dateHuman   = date('d.m.Y H:i:s');
 
 // Build and send notification email (non-blocking; ignore send errors)
 (function() use ($exportLabel, $username, $fullName, $clientIp, $dateHuman) {
-    $configPath = __DIR__ . '/../snmp_worker/config/config.yml';
-    if (!file_exists($configPath)) return;
-    $content = @file_get_contents($configPath);
-    if (!$content) return;
-
-    if (!preg_match(
-        '/email:\s+enabled:\s*(true|false)\s+smtp_host:\s*"([^"]*)"\s+smtp_port:\s*([^\s]+)\s+smtp_user:\s*"([^"]*)"\s+smtp_password:\s*"([^"]*)"\s+from_address:\s*"([^"]*)"/s',
-        $content, $m
-    ) || $m[1] !== 'true') return;
-
-    $toAddresses = [];
-    if (preg_match('/to_addresses:\s*((?:\s*-\s*"[^"]*"\s*)+)/', $content, $tm)) {
-        preg_match_all('/-\s*"([^"]*)"/', $tm[1], $addrMatches);
-        $toAddresses = array_filter($addrMatches[1]);
-    }
-    if (empty($toAddresses)) return;
-
-    $subject  = "CHAMADA Excel Export Bildirimi";
+    $subject   = "CHAMADA Excel Export Bildirimi";
     $exContent = "<p style='margin:0 0 14px;font-size:15px;font-weight:700;color:#3498db;'>📊 Excel Export Bildirimi</p>"
         . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Export Türü:</strong> " . htmlspecialchars($exportLabel) . "</p>"
         . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Tarih / Saat:</strong> " . htmlspecialchars($dateHuman) . "</p>";
-    $htmlBody = chamada_email_template('Excel Export Bildirimi', $exContent, $username, $fullName, $clientIp);
-
-    $port    = (int)$m[3];
-    $host    = $m[2];
-    $user    = $m[4];
-    $pass    = $m[5];
-    $from    = $m[6] ?: $user;
-    $tos     = array_values($toAddresses);
-
-    $boundary = md5(uniqid());
-    $plainBody = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $htmlBody));
-    $message = "MIME-Version: 1.0\r\n"
-        . "Content-Type: multipart/alternative; boundary=\"{$boundary}\"\r\n\r\n"
-        . "--{$boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n"
-        . $plainBody . "\r\n"
-        . "--{$boundary}\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n"
-        . $htmlBody . "\r\n"
-        . "--{$boundary}--\r\n";
-
-    try {
-        $useImplicitTLS = ($port === 465);
-        $proto  = $useImplicitTLS ? 'ssl' : 'tcp';
-        $ctx    = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-        $sock   = @stream_socket_client("{$proto}://{$host}:{$port}", $errno, $errstr, 15,
-                                        STREAM_CLIENT_CONNECT, $ctx);
-        if (!$sock) return;
-        stream_set_timeout($sock, 15);
-        $read = function() use ($sock) {
-            $buf = '';
-            while (($line = fgets($sock, 1024)) !== false) {
-                $buf .= $line;
-                if (isset($line[3]) && $line[3] === ' ') break;
-            }
-            return trim($buf);
-        };
-        $greeting = $read();
-        if (substr($greeting, 0, 3) !== '220') { fclose($sock); return; }
-        fwrite($sock, "EHLO " . gethostname() . "\r\n"); $read();
-        if (!$useImplicitTLS) {
-            fwrite($sock, "STARTTLS\r\n");
-            $r = $read();
-            if (substr($r, 0, 3) !== '220') { fclose($sock); return; }
-            if (!stream_socket_enable_crypto($sock, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) { fclose($sock); return; }
-            fwrite($sock, "EHLO " . gethostname() . "\r\n"); $read();
-        }
-        fwrite($sock, "AUTH LOGIN\r\n");
-        $r = $read();
-        if (substr($r, 0, 3) !== '334') { fclose($sock); return; }
-        fwrite($sock, base64_encode($user) . "\r\n"); $read();
-        fwrite($sock, base64_encode($pass) . "\r\n");
-        $r = $read();
-        if (substr($r, 0, 3) !== '235') { fclose($sock); return; }
-        fwrite($sock, "MAIL FROM:<{$from}>\r\n"); $read();
-        foreach ($tos as $to) { fwrite($sock, "RCPT TO:<{$to}>\r\n"); $read(); }
-        fwrite($sock, "DATA\r\n"); $read();
-        $headers = "From: {$from}\r\nTo: " . implode(', ', $tos) . "\r\nSubject: =?UTF-8?B?" . base64_encode($subject) . "?=\r\nDate: " . date('r') . "\r\n";
-        fwrite($sock, $headers . $message . "\r\n.\r\n");
-        $read();
-        fwrite($sock, "QUIT\r\n");
-        fclose($sock);
-    } catch (Throwable $e) { /* silently ignore */ }
+    $htmlBody  = chamada_email_template('Excel Export Bildirimi', $exContent, $username, $fullName, $clientIp);
+    EmailService::send($subject, $htmlBody);
 })();
 
 // Clear any output that was buffered by db.php's ob_start() before sending file headers

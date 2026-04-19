@@ -1,8 +1,12 @@
 <?php
 // updatePort.php - GÜNCEL VERSİYON (CONNECTED_TO DESTEKLİ)
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
+
+$auth = new Auth($conn);
+$auth->requireLogin();
 
 // Hata raporlama (log'a yaz)
 error_reporting(E_ALL);
@@ -468,8 +472,11 @@ try {
                         'newDescription' => $newDescription
                     ];
                     
-                    // Call alarm API
-                    $ch = curl_init('http://localhost' . dirname($_SERVER['PHP_SELF']) . '/port_change_api.php');
+                    // Call alarm API.
+                    // Release the session lock before the sub-request so that
+                    // port_change_api.php can acquire it without deadlocking.
+                    session_write_close();
+                    $ch = curl_init('http://localhost' . dirname($_SERVER['PHP_SELF']) . '/port_change_api.php?action=create_description_alarm');
                     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
                     curl_setopt($ch, CURLOPT_POST, true);
                     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($alarmData));

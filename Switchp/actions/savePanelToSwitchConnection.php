@@ -5,6 +5,10 @@ ini_set('log_errors', 1);
 
 header('Content-Type: application/json; charset=utf-8');
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
+
+$auth = new Auth($conn);
+$auth->requireLogin();
 
 function jsonResponse($success, $message, $data = []) {
     echo json_encode(array_merge([

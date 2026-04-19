@@ -367,11 +367,30 @@ class Config:
         
         devices = []
         
+        snmp_global = self._config_data.get("snmp", {})
+        global_auth_pass = self._get_env_or_config(
+            "SNMP_AUTH_PASSWORD", ["snmp", "auth_password"], snmp_global.get("auth_password", "")
+        )
+        global_priv_pass = self._get_env_or_config(
+            "SNMP_PRIV_PASSWORD", ["snmp", "priv_password"], snmp_global.get("priv_password", "")
+        )
+
         for device_data in devices_data:
             raw_monitored = device_data.get("monitored_ports", [])
             monitored_ports = [int(p) for p in raw_monitored] if raw_monitored else []
             raw_mac_exclude = device_data.get("mac_exclude_ports", [])
             mac_exclude_ports = [int(p) for p in raw_mac_exclude] if raw_mac_exclude else []
+
+            # Apply global SNMP credential env-vars to per-device snmp_v3 blocks
+            # when the per-device value is explicitly empty.
+            snmp_v3 = device_data.get("snmp_v3")
+            if snmp_v3 is not None:
+                snmp_v3 = dict(snmp_v3)  # avoid mutating the original
+                if snmp_v3.get("auth_password") in (None, "") and global_auth_pass:
+                    snmp_v3["auth_password"] = global_auth_pass
+                if snmp_v3.get("priv_password") in (None, "") and global_priv_pass:
+                    snmp_v3["priv_password"] = global_priv_pass
+
             device = DeviceConfig(
                 name=device_data.get("name", "Unknown"),
                 # Support both 'ip' and 'host' keywords
@@ -381,7 +400,7 @@ class Config:
                 snmp_version=device_data.get("snmp_version", "2c"),
                 community=device_data.get("community", "public"),
                 enabled=device_data.get("enabled", True),
-                snmp_v3=device_data.get("snmp_v3"),
+                snmp_v3=snmp_v3,
                 engine_id=device_data.get("snmp_engine_id") or device_data.get("engine_id"),  # Support both formats
                 monitored_ports=monitored_ports,
                 mac_exclude_ports=mac_exclude_ports,
