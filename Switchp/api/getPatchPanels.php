@@ -12,6 +12,7 @@ if (!$auth->isLoggedIn()) {
 
 $rackId = isset($_GET['rack_id']) ? intval($_GET['rack_id']) : 0;
 if ($rackId <= 0) {
+    http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Geçersiz rack_id', 'panels' => []]);
     exit;
 }
