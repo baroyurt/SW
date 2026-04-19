@@ -1,6 +1,14 @@
 <?php
 // updatePort.php - GÜNCEL VERSİYON (CONNECTED_TO DESTEKLİ)
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
+
+$auth = new Auth($conn);
+if (!$auth->isLoggedIn()) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+    exit();
+}
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -458,33 +466,10 @@ try {
             // Check if description (connected_to) changed and create alarm
             $newDescription = $ctp ?? '';
             if ($oldDescription !== $newDescription && ($oldDescription !== '' || $newDescription !== '')) {
-                // Description changed - create alarm
+                // Description changed - create alarm directly via DB (no internal HTTP call)
                 try {
-                    $alarmData = [
-                        'action' => 'create_description_alarm',
-                        'switchId' => $switchId,
-                        'portNo' => $portNo,
-                        'oldDescription' => $oldDescription,
-                        'newDescription' => $newDescription
-                    ];
-                    
-                    // Call alarm API
-                    $ch = curl_init('http://localhost' . dirname($_SERVER['PHP_SELF']) . '/port_change_api.php');
-                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                    curl_setopt($ch, CURLOPT_POST, true);
-                    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($alarmData));
-                    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-                    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-                    
-                    $alarmResponse = curl_exec($ch);
-                    $alarmResult = json_decode($alarmResponse, true);
-                    curl_close($ch);
-                    
-                    if ($alarmResult && isset($alarmResult['success']) && $alarmResult['success']) {
-                        error_log("Port description alarm created: Switch $switchId, Port $portNo");
-                    } else {
-                        error_log("Failed to create port description alarm: " . ($alarmResult['message'] ?? 'Unknown error'));
-                    }
+                    _createDescriptionAlarm($conn, $switchId, $portNo, $oldDescription, $newDescription);
+                    error_log("Port description alarm created: Switch $switchId, Port $portNo");
                 } catch (Exception $e) {
                     // Alarm creation failed, but port update succeeded - just log
                     error_log("Error creating description change alarm: " . $e->getMessage());
@@ -578,4 +563,83 @@ try {
 }
 
 $conn->close();
+
+/**
+ * Create a port description-change alarm directly via DB (avoids internal HTTP dependency).
+ * Mirrors the logic in port_change_api.php::createDescriptionChangeAlarm().
+ */
+function _createDescriptionAlarm($conn, int $switchId, int $portNo, string $oldDesc, string $newDesc): void
+{
+    if ($switchId <= 0 || $portNo <= 0) {
+        return;
+    }
+
+    // Resolve switch info
+    $sw = $conn->prepare("SELECT name, ip FROM switches WHERE id = ?");
+    $sw->bind_param("i", $switchId);
+    $sw->execute();
+    $switch = $sw->get_result()->fetch_assoc();
+    $sw->close();
+    if (!$switch) {
+        return;
+    }
+
+    // Resolve SNMP device_id
+    $sd = $conn->prepare("SELECT id FROM snmp_devices WHERE ip_address = ?");
+    $sd->bind_param("s", $switch['ip']);
+    $sd->execute();
+    $sdRow = $sd->get_result()->fetch_assoc();
+    $sd->close();
+    if (!$sdRow) {
+        // Switch not in SNMP monitoring — skip alarm silently
+        return;
+    }
+    $deviceId = (int)$sdRow['id'];
+
+    $oldDispDesc = $oldDesc ?: '(boş)';
+    $newDispDesc = $newDesc ?: '(boş)';
+    $title   = "Port $portNo açıklaması değişti";
+    $message = "Port $portNo ({$switch['name']}) açıklaması manuel olarak değiştirildi.\n\n"
+             . "Eski değer: '$oldDispDesc'\n"
+             . "Yeni değer: '$newDispDesc'";
+
+    // Check for a recent duplicate alarm (within last hour)
+    $chk = $conn->prepare("
+        SELECT id, occurrence_count FROM alarms
+        WHERE device_id = ? AND port_number = ? AND alarm_type = 'description_changed'
+          AND status = 'ACTIVE'
+          AND first_occurrence > DATEADD(HOUR, -1, GETDATE())
+    ");
+    $chk->bind_param("ii", $deviceId, $portNo);
+    $chk->execute();
+    $existing = $chk->get_result()->fetch_assoc();
+    $chk->close();
+
+    if ($existing) {
+        $upd = $conn->prepare("
+            UPDATE alarms
+            SET occurrence_count = occurrence_count + 1,
+                last_occurrence  = GETDATE(),
+                message          = ?,
+                new_value        = ?,
+                updated_at       = GETDATE()
+            WHERE id = ?
+        ");
+        $upd->bind_param("ssi", $message, $newDesc, $existing['id']);
+        $upd->execute();
+        $upd->close();
+    } else {
+        $ins = $conn->prepare("
+            INSERT INTO alarms
+                (device_id, alarm_type, severity, status, port_number, title, message,
+                 old_value, new_value, occurrence_count, first_occurrence, last_occurrence, created_at, updated_at)
+            VALUES
+                (?, 'description_changed', 'LOW', 'ACTIVE', ?, ?, ?,
+                 ?, ?, 1, GETDATE(), GETDATE(), GETDATE(), GETDATE())
+        ");
+        $ins->bind_param("iissss", $deviceId, $portNo, $title, $message, $oldDesc, $newDesc);
+        $ins->execute();
+        $ins->close();
+    }
+}
 ?>

@@ -81,12 +81,14 @@ try {
         
         $backupData = json_decode(file_get_contents($filename), true);
         
-        // Veritabanını temizle
-        $conn->query("SET FOREIGN_KEY_CHECKS = 0");
-        $conn->query("TRUNCATE TABLE ports");
-        $conn->query("TRUNCATE TABLE switches");
-        $conn->query("TRUNCATE TABLE racks");
-        $conn->query("SET FOREIGN_KEY_CHECKS = 1");
+        // Veritabanını temizle (SQL Server uyumlu — foreign key kısıtlarını geçici devre dışı bırak)
+        $conn->query("ALTER TABLE ports NOCHECK CONSTRAINT ALL");
+        $conn->query("ALTER TABLE switches NOCHECK CONSTRAINT ALL");
+        $conn->query("DELETE FROM ports");
+        $conn->query("DELETE FROM switches");
+        $conn->query("DELETE FROM racks");
+        $conn->query("ALTER TABLE ports CHECK CONSTRAINT ALL");
+        $conn->query("ALTER TABLE switches CHECK CONSTRAINT ALL");
         
         // Rack'leri geri yükle
         foreach ($backupData['data']['racks'] as $rack) {

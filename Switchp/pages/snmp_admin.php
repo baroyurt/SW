@@ -6,9 +6,13 @@ require_once __DIR__ . '/../auth.php';
 // Initialize auth
 $auth = new Auth($conn);
 
-// Check if user is authenticated
+// Check if user is authenticated AND has admin role
 if (!$auth->isLoggedIn()) {
     header('Location: ../login.php');
+    exit();
+}
+if (!$auth->isAdmin()) {
+    header('Location: ../index.php?error=admin_required');
     exit();
 }
 

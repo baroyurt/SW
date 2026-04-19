@@ -1,6 +1,14 @@
 <?php
 // saveRack.php - Rack ekleme / güncelleme
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
+
+$auth = new Auth($conn);
+if (!$auth->isLoggedIn()) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+    exit();
+}
 
 header('Content-Type: application/json; charset=utf-8');
 

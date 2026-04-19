@@ -1,5 +1,14 @@
 <?php
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
+
+$_hubAuth = new Auth($conn);
+if (!$_hubAuth->isLoggedIn()) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+    exit();
+}
+
 header('Content-Type: application/json; charset=utf-8');
 
 // Ensure table exists

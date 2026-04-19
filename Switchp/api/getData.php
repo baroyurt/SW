@@ -7,6 +7,17 @@ ini_set('display_startup_errors', 0);
 error_reporting(E_ALL);
 
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
+
+$auth = new Auth($conn);
+if (!$auth->isLoggedIn()) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+    exit();
+}
+
+// Release session lock so concurrent requests are not serialized.
+session_write_close();
 
 header('Content-Type: application/json; charset=utf-8');
 

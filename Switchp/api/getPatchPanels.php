@@ -30,6 +30,16 @@ try {
     jsonResponse(false, 'DB bağlantı hatası: ' . $e->getMessage());
 }
 
+// Yetki kontrolü
+require_once __DIR__ . '/../auth.php';
+$_gpAuth = new Auth($conn);
+if (!$_gpAuth->isLoggedIn()) {
+    if (ob_get_length()) ob_end_clean();
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+    exit();
+}
+
 // Input al
 $input = file_get_contents("php://input");
 
