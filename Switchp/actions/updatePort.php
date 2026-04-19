@@ -472,8 +472,11 @@ try {
                         'newDescription' => $newDescription
                     ];
                     
-                    // Call alarm API
-                    $ch = curl_init('http://localhost' . dirname($_SERVER['PHP_SELF']) . '/port_change_api.php');
+                    // Call alarm API.
+                    // Release the session lock before the sub-request so that
+                    // port_change_api.php can acquire it without deadlocking.
+                    session_write_close();
+                    $ch = curl_init('http://localhost' . dirname($_SERVER['PHP_SELF']) . '/port_change_api.php?action=create_description_alarm');
                     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
                     curl_setopt($ch, CURLOPT_POST, true);
                     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($alarmData));

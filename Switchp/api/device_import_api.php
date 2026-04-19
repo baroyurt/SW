@@ -24,6 +24,13 @@ require_once __DIR__ . '/../core/EmailService.php';
 // Initialize authentication
 $auth = new Auth($conn);
 
+// All entry points (upload, GET, DELETE) require an authenticated session.
+if (!$auth->isLoggedIn()) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+    exit();
+}
+
 // Get authenticated user
 function getAuthenticatedUser($auth) {
     if ($auth->isLoggedIn()) {
