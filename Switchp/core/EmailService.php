@@ -84,7 +84,7 @@ class EmailService
             return ['success' => false, 'error' => 'Alıcı adresi belirtilmedi.'];
         }
 
-        $boundary = md5(uniqid((string)mt_rand(), true));
+        $boundary = bin2hex(random_bytes(16));
         $plainBody = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $htmlBody));
 
         $message = "MIME-Version: 1.0\r\n"
