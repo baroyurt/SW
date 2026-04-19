@@ -94,7 +94,10 @@ class Database {
 
     public function rollbackToSavepoint(?string $name = null): void {
         if ($name === null) {
-            $name = end($this->savepointStack) ?: ('SP_' . $this->savepointCounter . '_' . time());
+            $name = end($this->savepointStack);
+            if ($name === false) {
+                throw new \LogicException('No active savepoint to roll back to.');
+            }
         }
         $this->conn->query("ROLLBACK TRANSACTION [{$name}]");
     }

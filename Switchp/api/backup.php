@@ -90,7 +90,9 @@ try {
         
         $backupData = json_decode(file_get_contents($filename), true);
 
-        // Restore inside a transaction so a partial failure leaves DB unchanged
+        // Restore inside a transaction so a partial failure leaves DB unchanged.
+        // PDO is configured with ERRMODE_EXCEPTION, so any failed query throws
+        // and is caught by the inner catch block which rolls back the transaction.
         $conn->begin_transaction();
         try {
             // Disable FK constraints (SQL Server syntax)
