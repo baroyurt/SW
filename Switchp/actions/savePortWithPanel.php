@@ -1,7 +1,11 @@
 <?php
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
+
+$auth = new Auth($conn);
+$auth->requireLogin();
 
 error_reporting(E_ALL);
 ini_set('display_errors', 0);

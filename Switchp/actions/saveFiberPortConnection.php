@@ -8,8 +8,12 @@
 // }
 
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
+
+$auth = new Auth($conn);
+$auth->requireLogin();
 
 function err($msg, $code = 400) {
     http_response_code($code);

@@ -14,13 +14,15 @@ database:
   max_overflow: 20
 
 # Global SNMP Configuration
+# Sensitive values can be overridden with environment variables:
+#   SNMP_AUTH_PASSWORD, SNMP_PRIV_PASSWORD
 snmp:
   version: "3"
   username: "snmpuser"
   auth_protocol: "SHA"
-  auth_password: "AuthPass123!"
+  auth_password: ""
   priv_protocol: "AES"
-  priv_password: "PrivPass123!"
+  priv_password: ""
   timeout: 2
   retries: 1
   max_bulk_size: 100
@@ -88,9 +90,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123"
+      priv_password: ""
 
   - name: "SW24-BALO"
     host: "172.18.1.225"
@@ -104,9 +106,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW25-BALO"
@@ -121,9 +123,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW35-BALO"
     host: "172.18.1.214"
@@ -135,9 +137,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW31-RUBY"
@@ -152,9 +154,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW32-RUBY"
     host: "172.18.1.217"
@@ -168,9 +170,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW33-RUBY"
     host: "172.18.1.216"
@@ -184,9 +186,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW34-RUBY"
     host: "172.18.1.215"
@@ -200,9 +202,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW36-HALI SAHA"
     host: "172.18.1.213"
@@ -214,9 +216,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW9-SPA"
@@ -229,9 +231,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW1-CASINO"
@@ -244,9 +246,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW6-CASINO"
@@ -259,9 +261,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW11-CASINO"
@@ -274,9 +276,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW8-MARKETING"
@@ -289,9 +291,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW7-CASINO KAMERA"
@@ -304,9 +306,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW39-BEACH"
@@ -321,9 +323,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW38-BEACH"
@@ -338,9 +340,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW3-DIAMOND"
@@ -353,9 +355,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW12-DIAMOND"
@@ -368,9 +370,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW22-BOSS CATI"
@@ -383,9 +385,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW19-BALIK"
@@ -400,9 +402,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW27-BUYUK KABIN"
     host: "172.18.1.222"
@@ -416,9 +418,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW29-BUYUK KABIN"
     host: "172.18.1.220"
@@ -432,9 +434,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW10-VIP"
     host: "172.18.1.239"
@@ -446,9 +448,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW13-2. KAT"
@@ -461,9 +463,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW14-1. KAT"
@@ -476,9 +478,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW15-2. KAT"
@@ -491,9 +493,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW16-1. KAT"
@@ -506,9 +508,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW17-3. KAT"
@@ -521,9 +523,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW18-3. KAT"
@@ -536,9 +538,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW2-OTEL"
@@ -551,9 +553,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW21-HAVUZ"
@@ -566,9 +568,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW20-SLOT"
@@ -581,9 +583,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW26-VIP"
@@ -598,9 +600,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW30-KUCUK KABIN"
     host: "172.18.1.219"
@@ -614,9 +616,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW28-KUCUK KABIN"
     host: "172.18.1.221"
@@ -630,9 +632,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
 
   - name: "SW5-SLOT"
     host: "172.18.1.244"
@@ -644,9 +646,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
   - name: "SW4-OTEL"
@@ -659,9 +661,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123!"
+      auth_password: ""
       priv_protocol: "AES"
-      priv_password: "PrivPass123!"
+      priv_password: ""
       engine_id: "0102030405060708"
 
 # Alarm Configuration
@@ -725,7 +727,7 @@ email:
   smtp_host: "smtp.yandex.com"
   smtp_port: 465
   smtp_user: "destek@chamadaprestige.com"
-  smtp_password: "yjaixkhyxewtuguq"
+  smtp_password: ""  # Set via SMTP_PASSWORD env var
   from_address: "destek@chamadaprestige.com"
   to_addresses:
     - "baris.yurtlak@chamadaprestige.com"
@@ -752,7 +754,7 @@ domain_server:
   ldap_host: "dc.company.local"  # Domain controller hostname or IP
   ldap_port: 389  # 389 for LDAP, 636 for LDAPS
   ldap_user: "DOMAIN\\administrator"  # Domain user with read permissions
-  ldap_password: "YourPassword123"  # User password
+  ldap_password: ""  # Set via LDAP_PASSWORD env var
   ldap_base_dn: ""  # Auto-detected if empty, e.g., "DC=company,DC=local"
   
   # DHCP Server Configuration

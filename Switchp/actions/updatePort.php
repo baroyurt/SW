@@ -1,8 +1,12 @@
 <?php
 // updatePort.php - GÜNCEL VERSİYON (CONNECTED_TO DESTEKLİ)
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
+
+$auth = new Auth($conn);
+$auth->requireLogin();
 
 // Hata raporlama (log'a yaz)
 error_reporting(E_ALL);

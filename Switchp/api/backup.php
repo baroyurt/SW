@@ -7,9 +7,18 @@ header('Content-Type: application/json');
 $auth = new Auth($conn);
 $auth->requireLogin();
 
+// All mutating backup actions must come via POST to prevent CSRF via GET/link
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'status' => 'error', 'message' => 'Geçersiz istek metodu.']);
+    $conn->close();
+    exit;
+}
+
 try {
-    $action = $_REQUEST['action'] ?? '';
-    $backupName = $_REQUEST['name'] ?? '';
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    $action = $input['action'] ?? '';
+    $backupName = $input['name'] ?? '';
     
     if ($action === 'create') {
         // Tüm verileri al
@@ -70,7 +79,7 @@ try {
         ]);
         
     } elseif ($action === 'restore') {
-        $filename = isset($_REQUEST['file']) ? 'backups/' . basename($_REQUEST['file']) : '';
+        $filename = isset($input['file']) ? 'backups/' . basename($input['file']) : '';
         
         // Ensure file is within the backups directory
         $backupDir = realpath('backups');

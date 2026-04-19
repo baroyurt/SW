@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../auth.php';
 require_once __DIR__ . '/../core/email_template.php';
+require_once __DIR__ . '/../core/EmailService.php';
 
 header('Content-Type: application/json');
 
@@ -11,97 +12,6 @@ if (!$auth->isLoggedIn()) {
     http_response_code(401);
     echo json_encode(['success' => false, 'message' => 'Yetkisiz erişim.']);
     exit;
-}
-
-// ── Email helpers (same SMTP implementation as device_import_api.php) ────────
-
-function mhc_getSmtpConfig() {
-    $configPath = __DIR__ . '/../snmp_worker/config/config.yml';
-    if (!file_exists($configPath)) return null;
-    $content = @file_get_contents($configPath);
-    if (!$content) return null;
-    if (!preg_match(
-        '/email:\s+enabled:\s*(true|false)\s+smtp_host:\s*"([^"]*)"\s+smtp_port:\s*([^\s]+)\s+smtp_user:\s*"([^"]*)"\s+smtp_password:\s*"([^"]*)"\s+from_address:\s*"([^"]*)"/s',
-        $content, $m
-    )) return null;
-    if ($m[1] !== 'true') return null;
-    $toAddresses = [];
-    if (preg_match('/to_addresses:\s*((?:\s*-\s*"[^"]*"\s*)+)/', $content, $tm)) {
-        preg_match_all('/-\s*"([^"]*)"/', $tm[1], $addrMatches);
-        $toAddresses = array_filter($addrMatches[1]);
-    }
-    if (empty($toAddresses)) return null;
-    return [
-        'smtp_host'     => $m[2],
-        'smtp_port'     => (int)$m[3],
-        'smtp_user'     => $m[4],
-        'smtp_password' => $m[5],
-        'from_address'  => $m[6],
-        'to_addresses'  => array_values($toAddresses),
-    ];
-}
-
-function mhc_sendEmail(string $subject, string $htmlBody): bool {
-    $cfg = mhc_getSmtpConfig();
-    if (!$cfg) return false;
-    $boundary = md5(uniqid());
-    $plainBody = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $htmlBody));
-    $message = "MIME-Version: 1.0\r\n"
-        . "Content-Type: multipart/alternative; boundary=\"{$boundary}\"\r\n\r\n"
-        . "--{$boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n"
-        . $plainBody . "\r\n"
-        . "--{$boundary}\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n"
-        . $htmlBody . "\r\n"
-        . "--{$boundary}--\r\n";
-    $port = $cfg['smtp_port']; $host = $cfg['smtp_host'];
-    $user = $cfg['smtp_user']; $pass = $cfg['smtp_password'];
-    $from = $cfg['from_address'] ?: $user; $tos = $cfg['to_addresses'];
-    try {
-        $useImplicitTLS = ($port === 465);
-        $proto = $useImplicitTLS ? 'ssl' : 'tcp';
-        $ctx   = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-        $sock  = @stream_socket_client("{$proto}://{$host}:{$port}", $errno, $errstr, 15,
-                                       STREAM_CLIENT_CONNECT, $ctx);
-        if (!$sock) return false;
-        stream_set_timeout($sock, 15);
-        $read = function() use ($sock) {
-            $buf = '';
-            while (($line = fgets($sock, 1024)) !== false) {
-                $buf .= $line;
-                if (isset($line[3]) && $line[3] === ' ') break;
-            }
-            return trim($buf);
-        };
-        $greeting = $read();
-        if (substr($greeting, 0, 3) !== '220') { fclose($sock); return false; }
-        fwrite($sock, "EHLO " . gethostname() . "\r\n"); $read();
-        if (!$useImplicitTLS) {
-            fwrite($sock, "STARTTLS\r\n");
-            $r = $read();
-            if (substr($r, 0, 3) !== '220') { fclose($sock); return false; }
-            if (!stream_socket_enable_crypto($sock, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) { fclose($sock); return false; }
-            fwrite($sock, "EHLO " . gethostname() . "\r\n"); $read();
-        }
-        fwrite($sock, "AUTH LOGIN\r\n");
-        $r = $read();
-        if (substr($r, 0, 3) !== '334') { fclose($sock); return false; }
-        fwrite($sock, base64_encode($user) . "\r\n"); $read();
-        fwrite($sock, base64_encode($pass) . "\r\n");
-        $r = $read();
-        if (substr($r, 0, 3) !== '235') { fclose($sock); return false; }
-        fwrite($sock, "MAIL FROM:<{$from}>\r\n"); $read();
-        foreach ($tos as $to) { fwrite($sock, "RCPT TO:<{$to}>\r\n"); $read(); }
-        fwrite($sock, "DATA\r\n"); $read();
-        $headers = "From: {$from}\r\nTo: " . implode(', ', $tos) . "\r\nSubject: {$subject}\r\nDate: " . date('r') . "\r\n";
-        fwrite($sock, $headers . $message . "\r\n.\r\n");
-        $r = $read();
-        fwrite($sock, "QUIT\r\n");
-        fclose($sock);
-        return substr($r, 0, 3) === '250';
-    } catch (\Throwable $e) {
-        error_log("mhc_sendEmail error: " . $e->getMessage());
-        return false;
-    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -231,7 +141,7 @@ if ($deleted > 0) {
               . "<tbody>{$rows}</tbody></table>";
 
     $htmlBody = chamada_email_template('MAC Değişim Geçmişi', $content, $deletedBy, $deletedByFullName, $clientIpMhc);
-    mhc_sendEmail($subject, $htmlBody);
+    EmailService::send($subject, $htmlBody);
 }
 
 echo json_encode([

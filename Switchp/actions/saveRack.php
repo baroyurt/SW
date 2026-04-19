@@ -1,8 +1,12 @@
 <?php
 // saveRack.php - Rack ekleme / güncelleme
 include __DIR__ . '/../db.php';
+require_once __DIR__ . '/../auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
+
+$auth = new Auth($conn);
+$auth->requireLogin();
 
 function jsonResponse($success, $message = '', $data = []) {
     echo json_encode(array_merge([
