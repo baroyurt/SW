@@ -84,11 +84,13 @@ try {
         // Veritabanını temizle (SQL Server uyumlu — foreign key kısıtlarını geçici devre dışı bırak)
         $conn->query("ALTER TABLE ports NOCHECK CONSTRAINT ALL");
         $conn->query("ALTER TABLE switches NOCHECK CONSTRAINT ALL");
+        $conn->query("ALTER TABLE racks NOCHECK CONSTRAINT ALL");
         $conn->query("DELETE FROM ports");
         $conn->query("DELETE FROM switches");
         $conn->query("DELETE FROM racks");
         $conn->query("ALTER TABLE ports CHECK CONSTRAINT ALL");
         $conn->query("ALTER TABLE switches CHECK CONSTRAINT ALL");
+        $conn->query("ALTER TABLE racks CHECK CONSTRAINT ALL");
         
         // Rack'leri geri yükle
         foreach ($backupData['data']['racks'] as $rack) {
