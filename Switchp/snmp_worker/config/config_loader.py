@@ -386,9 +386,9 @@ class Config:
             snmp_v3 = device_data.get("snmp_v3")
             if snmp_v3 is not None:
                 snmp_v3 = dict(snmp_v3)  # avoid mutating the original
-                if not snmp_v3.get("auth_password") and global_auth_pass:
+                if snmp_v3.get("auth_password") in (None, "") and global_auth_pass:
                     snmp_v3["auth_password"] = global_auth_pass
-                if not snmp_v3.get("priv_password") and global_priv_pass:
+                if snmp_v3.get("priv_password") in (None, "") and global_priv_pass:
                     snmp_v3["priv_password"] = global_priv_pass
 
             device = DeviceConfig(

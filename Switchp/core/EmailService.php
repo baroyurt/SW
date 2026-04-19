@@ -98,7 +98,7 @@ class EmailService
         $timeout          = 15;
         $useImplicitTLS   = ($port === 465);
         $proto            = $useImplicitTLS ? 'ssl' : 'tcp';
-        $sslVerify        = (bool)(getenv('SMTP_SSL_VERIFY') ?: false);
+        $sslVerify = filter_var(getenv('SMTP_SSL_VERIFY'), FILTER_VALIDATE_BOOLEAN);
 
         $ctx = stream_context_create([
             'ssl' => [

@@ -172,7 +172,7 @@ class ConfigReader
                     }
                 }
 
-                if ($rest === '' || $rest === null) {
+                if ($rest === '') {
                     // Nested mapping or sequence follows
                     if (!isset($current[$key]) || !is_array($current[$key])) {
                         $current[$key] = [];
@@ -206,8 +206,8 @@ class ConfigReader
 
         // Quoted string (single or double)
         if (strlen($raw) >= 2
-            && (($raw[0] === '"' && $raw[-1] === '"')
-                || ($raw[0] === "'" && $raw[-1] === "'"))) {
+            && (($raw[0] === '"' && substr($raw, -1) === '"')
+                || ($raw[0] === "'" && substr($raw, -1) === "'"))) {
             return substr($raw, 1, -1);
         }
 
