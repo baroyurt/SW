@@ -90,9 +90,9 @@ switches:
     snmp_v3:
       username: "snmpuser"
       auth_protocol: "SHA"
-      auth_password: "AuthPass123"
+      auth_password: "AuthPass123!"
       priv_protocol: "AES"
-      priv_password: "PrivPass123"
+      priv_password: "PrivPass123!"
 
   - name: "SW24-BALO"
     host: "172.18.1.225"
