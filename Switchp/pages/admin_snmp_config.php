@@ -11,7 +11,12 @@ if (!$auth->isLoggedIn()) {
     header('Location: ../login.php');
     exit();
 }
-// Release the PHP session lock immediately so that concurrent requests from
+
+// Admin role required for SNMP configuration pages
+if (!$auth->isAdmin()) {
+    header('Location: ../index.php?error=admin_required');
+    exit();
+}
 // admin.php (service-status poll, panel CSV export, etc.) are not blocked.
 session_write_close();
 
