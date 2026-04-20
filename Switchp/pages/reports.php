@@ -21,15 +21,19 @@ header('Expires: 0');
 $sql = "
     SELECT
         sd.name           AS switch_name,
-        sd.ip_address     AS switch_ip,
         psd.port_number,
         psd.port_alias    AS alias,
         psd.vlan_id,
         psd.oper_status,
         psd.port_speed,
-        psd.poll_timestamp
+        psd.poll_timestamp,
+        mat.device_name   AS conn_device,
+        mat.ip_address    AS conn_ip
     FROM port_status_data psd
     JOIN snmp_devices sd ON sd.id = psd.device_id
+    LEFT JOIN mac_address_tracking mat
+           ON mat.current_device_id   = psd.device_id
+          AND mat.current_port_number = psd.port_number
     WHERE psd.oper_status = 'up'
       AND psd.port_speed IS NOT NULL
       AND psd.port_speed > 0
@@ -513,11 +517,11 @@ function formatSpeed(int $bps): string {
             <thead>
                 <tr>
                     <th onclick="sortTable(0)">Switch Adı <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(1)">IP Adresi <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(2)">Port <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(3)">Hız <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(4)">VLAN <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(5)">Alias <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(1)">Port <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(2)">Hız <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(3)">VLAN <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(4)">Alias <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(5)">Bağlantı <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(6)">Durum <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(7)">Son Güncelleme <span class="sort-icon fas fa-sort"></span></th>
                 </tr>
@@ -531,16 +535,27 @@ function formatSpeed(int $bps): string {
                     $ts = !empty($row['poll_timestamp'])
                         ? date('d.m.Y H:i', strtotime($row['poll_timestamp']))
                         : '-';
+                    $connDevice = trim($row['conn_device'] ?? '');
+                    $connIp     = trim($row['conn_ip']     ?? '');
+                    if ($connDevice !== '' && $connIp !== '') {
+                        $connHtml = htmlspecialchars($connDevice) . '<br><span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
+                    } elseif ($connDevice !== '') {
+                        $connHtml = htmlspecialchars($connDevice);
+                    } elseif ($connIp !== '') {
+                        $connHtml = '<span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
+                    } else {
+                        $connHtml = '<span style="color:#475569">—</span>';
+                    }
                 ?>
                 <tr data-switch="<?= htmlspecialchars($row['switch_name']) ?>"
                     data-speed="<?= htmlspecialchars($speedGroupKey) ?>"
                     data-vlan="<?= $row['vlan_id'] !== null ? (int)$row['vlan_id'] : '' ?>">
                     <td><?= htmlspecialchars($row['switch_name'] ?? '-') ?></td>
-                    <td><?= htmlspecialchars($row['switch_ip']   ?? '-') ?></td>
                     <td><?= (int)$row['port_number'] ?></td>
                     <td><span class="<?= $speedClass ?>"><?= htmlspecialchars($speedStr) ?></span></td>
                     <td><?= $row['vlan_id'] ? '<span class="badge badge-vlan">' . (int)$row['vlan_id'] . '</span>' : '-' ?></td>
                     <td style="color:var(--text-light);font-size:12px"><?= htmlspecialchars($row['alias'] ?? '-') ?></td>
+                    <td style="font-size:12px;line-height:1.4"><?= $connHtml ?></td>
                     <td><span class="badge badge-up">UP</span></td>
                     <td style="color:var(--text-light)"><?= $ts ?></td>
                 </tr>
@@ -598,7 +613,7 @@ function sortTable(col) {
         const va = a.querySelectorAll('td')[col]?.textContent.trim() ?? '';
         const vb = b.querySelectorAll('td')[col]?.textContent.trim() ?? '';
         // Hız sütunu için sayısal sıralama (bps parse)
-        if (col === 3) {
+        if (col === 2) {
             const pa = parseSpeed(va), pb = parseSpeed(vb);
             return asc ? pa - pb : pb - pa;
         }
@@ -630,18 +645,16 @@ function parseSpeed(str) {
     }
 }
 
-// ── CSV Export ──────────────────────────────────────────────────────────────
-function exportCSV() {
-    const headers = ['Switch Adı','IP Adresi','Port','Hız','VLAN','Alias','Durum','Son Güncelleme'];
+// ── Excel Export (SheetJS) ──────────────────────────────────────────────────
+function exportXLSX() {
+    const headers = ['Switch Adı','Port','Hız','VLAN','Alias','Bağlantı','Durum','Son Güncelleme'];
     const rows    = Array.from(document.querySelectorAll('#tableBody tr'))
         .filter(r => r.style.display !== 'none')
-        .map(r => Array.from(r.querySelectorAll('td'))
-            .map(td => '"' + td.textContent.trim().replace(/"/g,'""') + '"'));
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const a   = document.createElement('a');
-    a.href    = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
-    a.download = 'dusuk_hizli_portlar_' + new Date().toISOString().slice(0,10) + '.csv';
-    a.click();
+        .map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent.trim()));
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Yavaş Portlar');
+    XLSX.writeFile(wb, 'dusuk_hizli_portlar_' + new Date().toISOString().slice(0,10) + '.xlsx');
 }
 </script>
 </body>
