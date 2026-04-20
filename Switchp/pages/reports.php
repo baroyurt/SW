@@ -23,17 +23,23 @@ $sql = "
         sd.name           AS switch_name,
         psd.port_number,
         psd.port_alias    AS alias,
+        psd.mac_address   AS port_mac,
         psd.vlan_id,
         psd.oper_status,
         psd.port_speed,
         psd.poll_timestamp,
-        mat.device_name   AS conn_device,
-        mat.ip_address    AS conn_ip
+        (SELECT device_name FROM mac_address_tracking
+          WHERE current_device_id   = psd.device_id
+            AND current_port_number = psd.port_number
+            AND device_name IS NOT NULL AND device_name <> ''
+          ORDER BY last_seen DESC LIMIT 1) AS conn_device,
+        (SELECT ip_address FROM mac_address_tracking
+          WHERE current_device_id   = psd.device_id
+            AND current_port_number = psd.port_number
+            AND ip_address IS NOT NULL AND ip_address <> ''
+          ORDER BY last_seen DESC LIMIT 1) AS conn_ip
     FROM port_status_data psd
     JOIN snmp_devices sd ON sd.id = psd.device_id
-    LEFT JOIN mac_address_tracking mat
-           ON mat.current_device_id   = psd.device_id
-          AND mat.current_port_number = psd.port_number
     WHERE psd.oper_status = 'up'
       AND psd.port_speed IS NOT NULL
       AND psd.port_speed > 0
@@ -520,10 +526,9 @@ function formatSpeed(int $bps): string {
                     <th onclick="sortTable(1)">Port <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(2)">Hız <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(3)">VLAN <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(4)">Alias <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(5)">Bağlantı <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(6)">Durum <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(7)">Son Güncelleme <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(4)">Bağlantı <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(5)">Durum <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(6)">Son Güncelleme <span class="sort-icon fas fa-sort"></span></th>
                 </tr>
             </thead>
             <tbody id="tableBody">
@@ -535,12 +540,16 @@ function formatSpeed(int $bps): string {
                     $ts = !empty($row['poll_timestamp'])
                         ? date('d.m.Y H:i', strtotime($row['poll_timestamp']))
                         : '-';
+                    // Bağlantı: device_name (tracking) > port_alias > MAC > —
                     $connDevice = trim($row['conn_device'] ?? '');
                     $connIp     = trim($row['conn_ip']     ?? '');
-                    if ($connDevice !== '' && $connIp !== '') {
-                        $connHtml = htmlspecialchars($connDevice) . '<br><span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
-                    } elseif ($connDevice !== '') {
-                        $connHtml = htmlspecialchars($connDevice);
+                    $alias      = trim($row['alias']       ?? '');
+                    $portMac    = trim($row['port_mac']    ?? '');
+                    $label = $connDevice !== '' ? $connDevice : ($alias !== '' ? $alias : $portMac);
+                    if ($label !== '' && $connIp !== '') {
+                        $connHtml = htmlspecialchars($label) . '<br><span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
+                    } elseif ($label !== '') {
+                        $connHtml = htmlspecialchars($label);
                     } elseif ($connIp !== '') {
                         $connHtml = '<span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
                     } else {
@@ -554,7 +563,6 @@ function formatSpeed(int $bps): string {
                     <td><?= (int)$row['port_number'] ?></td>
                     <td><span class="<?= $speedClass ?>"><?= htmlspecialchars($speedStr) ?></span></td>
                     <td><?= $row['vlan_id'] ? '<span class="badge badge-vlan">' . (int)$row['vlan_id'] . '</span>' : '-' ?></td>
-                    <td style="color:var(--text-light);font-size:12px"><?= htmlspecialchars($row['alias'] ?? '-') ?></td>
                     <td style="font-size:12px;line-height:1.4"><?= $connHtml ?></td>
                     <td><span class="badge badge-up">UP</span></td>
                     <td style="color:var(--text-light)"><?= $ts ?></td>
@@ -647,7 +655,7 @@ function parseSpeed(str) {
 
 // ── Excel Export (SheetJS) ──────────────────────────────────────────────────
 function exportXLSX() {
-    const headers = ['Switch Adı','Port','Hız','VLAN','Alias','Bağlantı','Durum','Son Güncelleme'];
+    const headers = ['Switch Adı','Port','Hız','VLAN','Bağlantı','Durum','Son Güncelleme'];
     const rows    = Array.from(document.querySelectorAll('#tableBody tr'))
         .filter(r => r.style.display !== 'none')
         .map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent.trim()));
