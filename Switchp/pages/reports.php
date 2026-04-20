@@ -57,6 +57,15 @@ foreach ($ports as $p) {
 }
 arsort($switchGroups);
 
+// Benzersiz VLAN ID'leri (filtre için)
+$vlanList = [];
+foreach ($ports as $p) {
+    if ($p['vlan_id'] !== null && $p['vlan_id'] !== '') {
+        $vlanList[(int)$p['vlan_id']] = true;
+    }
+}
+ksort($vlanList);
+
 /**
  * bps → insan okunabilir hız dizesi
  */
@@ -74,6 +83,7 @@ function formatSpeed(int $bps): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Raporlar</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         html { zoom: 0.95; }
         :root {
@@ -476,11 +486,17 @@ function formatSpeed(int $bps): string {
                 <option value="<?= htmlspecialchars($speed) ?>"><?= htmlspecialchars($speed) ?></option>
             <?php endforeach; ?>
         </select>
+        <select class="filter-select" id="vlanFilter" onchange="filterTable()">
+            <option value="">Tüm VLAN'lar</option>
+            <?php foreach (array_keys($vlanList) as $vlanId): ?>
+                <option value="<?= $vlanId ?>"><?= $vlanId ?></option>
+            <?php endforeach; ?>
+        </select>
         <button class="btn btn-secondary" onclick="location.reload()">
             <i class="fas fa-sync-alt"></i> Yenile
         </button>
-        <button class="btn btn-secondary" onclick="exportCSV()">
-            <i class="fas fa-file-csv"></i> CSV
+        <button class="btn btn-secondary" onclick="exportXLSX()">
+            <i class="fas fa-file-excel"></i> Excel
         </button>
     </div>
 
@@ -517,7 +533,8 @@ function formatSpeed(int $bps): string {
                         : '-';
                 ?>
                 <tr data-switch="<?= htmlspecialchars($row['switch_name']) ?>"
-                    data-speed="<?= htmlspecialchars($speedGroupKey) ?>">
+                    data-speed="<?= htmlspecialchars($speedGroupKey) ?>"
+                    data-vlan="<?= $row['vlan_id'] !== null ? (int)$row['vlan_id'] : '' ?>">
                     <td><?= htmlspecialchars($row['switch_name'] ?? '-') ?></td>
                     <td><?= htmlspecialchars($row['switch_ip']   ?? '-') ?></td>
                     <td><?= (int)$row['port_number'] ?></td>
@@ -541,22 +558,25 @@ function formatSpeed(int $bps): string {
 <script>
 // ── Filter ──────────────────────────────────────────────────────────────────
 function filterTable() {
-    const q        = document.getElementById('searchInput').value.toLowerCase();
-    const swFilter = document.getElementById('switchFilter').value;
-    const spFilter = document.getElementById('speedFilter').value;
-    const rows     = document.querySelectorAll('#tableBody tr');
+    const q          = document.getElementById('searchInput').value.toLowerCase();
+    const swFilter   = document.getElementById('switchFilter').value;
+    const spFilter   = document.getElementById('speedFilter').value;
+    const vlanFilter = document.getElementById('vlanFilter').value;
+    const rows       = document.querySelectorAll('#tableBody tr');
     let visible = 0;
 
     rows.forEach(tr => {
         const text      = tr.textContent.toLowerCase();
         const rowSwitch = tr.dataset.switch || '';
         const rowSpeed  = tr.dataset.speed  || '';
+        const rowVlan   = tr.dataset.vlan   || '';
 
-        const matchQ  = !q        || text.includes(q);
-        const matchSw = !swFilter || rowSwitch === swFilter;
-        const matchSp = !spFilter || rowSpeed  === spFilter;
+        const matchQ    = !q          || text.includes(q);
+        const matchSw   = !swFilter   || rowSwitch === swFilter;
+        const matchSp   = !spFilter   || rowSpeed  === spFilter;
+        const matchVlan = !vlanFilter || rowVlan   === vlanFilter;
 
-        const show = matchQ && matchSw && matchSp;
+        const show = matchQ && matchSw && matchSp && matchVlan;
         tr.style.display = show ? '' : 'none';
         if (show) visible++;
     });
