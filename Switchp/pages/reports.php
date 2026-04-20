@@ -3,7 +3,7 @@
  * reports.php — Raporlar Merkezi
  *
  * Tüm analiz/rapor sayfalarına hızlı erişim sağlar ve
- * ağda 100 Mbps ile altında çalışan (UP) portları listeler.
+ * ağda 100 Mbps ve altında çalışan (UP) portları listeler.
  */
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../auth.php';
@@ -508,16 +508,16 @@ function formatSpeed(int $bps): string {
             </thead>
             <tbody id="tableBody">
                 <?php foreach ($ports as $row):
-                    $bps    = (int)$row['port_speed'];
-                    $mbps   = round($bps / 1_000_000, 1);
-                    $speedStr = formatSpeed($bps);
-                    $speedClass = ($bps <= 10_000_000) ? 'speed-10' : 'speed-warn';
+                    $bps          = (int)$row['port_speed'];
+                    $speedStr     = formatSpeed($bps);
+                    $speedGroupKey = (int)round($bps / 1_000_000) . ' Mbps';
+                    $speedClass   = ($bps <= 10_000_000) ? 'speed-10' : 'speed-warn';
                     $ts = !empty($row['poll_timestamp'])
                         ? date('d.m.Y H:i', strtotime($row['poll_timestamp']))
                         : '-';
                 ?>
                 <tr data-switch="<?= htmlspecialchars($row['switch_name']) ?>"
-                    data-speed="<?= $mbps <= 10 ? '10 Mbps' : '100 Mbps' ?>">
+                    data-speed="<?= htmlspecialchars($speedGroupKey) ?>">
                     <td><?= htmlspecialchars($row['switch_name'] ?? '-') ?></td>
                     <td><?= htmlspecialchars($row['switch_ip']   ?? '-') ?></td>
                     <td><?= (int)$row['port_number'] ?></td>
@@ -549,15 +549,12 @@ function filterTable() {
 
     rows.forEach(tr => {
         const text      = tr.textContent.toLowerCase();
-        const rowSwitch = tr.dataset.switch  || '';
-        const rowSpeedMbps = parseFloat(tr.querySelectorAll('td')[3]?.textContent) || 0;
+        const rowSwitch = tr.dataset.switch || '';
+        const rowSpeed  = tr.dataset.speed  || '';
 
         const matchQ  = !q        || text.includes(q);
         const matchSw = !swFilter || rowSwitch === swFilter;
-
-        // speed filter: compare label text in 4th cell
-        const cellSpeed = tr.querySelectorAll('td')[3]?.textContent.trim() ?? '';
-        const matchSp = !spFilter || cellSpeed === spFilter;
+        const matchSp = !spFilter || rowSpeed  === spFilter;
 
         const show = matchQ && matchSw && matchSp;
         tr.style.display = show ? '' : 'none';
