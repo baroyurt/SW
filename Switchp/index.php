@@ -1833,6 +1833,14 @@ header("Expires: 0");
             </button>
         </div>
         
+        <div class="nav-section">
+            <div class="nav-title">Raporlar</div>
+            <button class="nav-item" onclick="window.open('pages/reports.php', '_blank')" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);">
+                <i class="fas fa-chart-bar"></i>
+                <span>Raporlar</span>
+            </button>
+        </div>
+
         <?php if ($currentUser['role'] === 'admin'): ?>
         <div class="nav-section">
             <div class="nav-title">SNMP Admin</div>
