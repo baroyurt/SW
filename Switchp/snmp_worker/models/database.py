@@ -366,7 +366,13 @@ class PortChangeHistory(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_id = Column(Integer, ForeignKey('snmp_devices.id', ondelete='CASCADE'), nullable=False)
     port_number = Column(Integer, nullable=False)
-    change_type = Column(Enum(ChangeType), nullable=False)
+    change_type = Column(
+        Enum(
+            ChangeType,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False
+    )
     change_timestamp = Column(DateTime, default=get_current_time, nullable=False)
     
     # Old values
