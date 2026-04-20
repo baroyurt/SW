@@ -28,16 +28,16 @@ $sql = "
         psd.oper_status,
         psd.port_speed,
         psd.poll_timestamp,
-        (SELECT device_name FROM mac_address_tracking
+        (SELECT TOP 1 device_name FROM mac_address_tracking
           WHERE current_device_id   = psd.device_id
             AND current_port_number = psd.port_number
             AND device_name IS NOT NULL AND device_name <> ''
-          ORDER BY last_seen DESC LIMIT 1) AS conn_device,
-        (SELECT ip_address FROM mac_address_tracking
+          ORDER BY last_seen DESC) AS conn_device,
+        (SELECT TOP 1 ip_address FROM mac_address_tracking
           WHERE current_device_id   = psd.device_id
             AND current_port_number = psd.port_number
             AND ip_address IS NOT NULL AND ip_address <> ''
-          ORDER BY last_seen DESC LIMIT 1) AS conn_ip
+          ORDER BY last_seen DESC) AS conn_ip
     FROM port_status_data psd
     JOIN snmp_devices sd ON sd.id = psd.device_id
     WHERE psd.oper_status = 'up'
