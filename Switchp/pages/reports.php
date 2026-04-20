@@ -28,18 +28,11 @@ $sql = "
         psd.oper_status,
         psd.port_speed,
         psd.poll_timestamp,
-        (SELECT TOP 1 device_name FROM mac_address_tracking
-          WHERE current_device_id   = psd.device_id
-            AND current_port_number = psd.port_number
-            AND device_name IS NOT NULL AND device_name <> ''
-          ORDER BY last_seen DESC) AS conn_device,
-        (SELECT TOP 1 ip_address FROM mac_address_tracking
-          WHERE current_device_id   = psd.device_id
-            AND current_port_number = psd.port_number
-            AND ip_address IS NOT NULL AND ip_address <> ''
-          ORDER BY last_seen DESC) AS conn_ip
+        mdr.device_name   AS conn_device,
+        mdr.ip_address    AS conn_ip
     FROM port_status_data psd
     JOIN snmp_devices sd ON sd.id = psd.device_id
+    LEFT JOIN mac_device_registry mdr ON mdr.mac_address = psd.mac_address
     WHERE psd.oper_status = 'up'
       AND psd.port_speed IS NOT NULL
       AND psd.port_speed > 0
@@ -540,12 +533,14 @@ function formatSpeed(int $bps): string {
                     $ts = !empty($row['poll_timestamp'])
                         ? date('d.m.Y H:i', strtotime($row['poll_timestamp']))
                         : '-';
-                    // Bağlantı: device_name (tracking) > port_alias > MAC > —
+                    // Bağlantı: device_name (registry) > port_alias (generic değilse) > MAC > —
                     $connDevice = trim($row['conn_device'] ?? '');
                     $connIp     = trim($row['conn_ip']     ?? '');
                     $alias      = trim($row['alias']       ?? '');
                     $portMac    = trim($row['port_mac']    ?? '');
-                    $label = $connDevice !== '' ? $connDevice : ($alias !== '' ? $alias : $portMac);
+                    // "DEVICE", "CIHAZ" gibi generic placeholder alias'ları atla
+                    $aliasIsGeneric = preg_match('/^(DEVICE|CIHAZ\s*\d*)$/i', $alias);
+                    $label = $connDevice !== '' ? $connDevice : (!$aliasIsGeneric && $alias !== '' ? $alias : $portMac);
                     if ($label !== '' && $connIp !== '') {
                         $connHtml = htmlspecialchars($label) . '<br><span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
                     } elseif ($label !== '') {
