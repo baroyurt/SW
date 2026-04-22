@@ -541,8 +541,8 @@ function formatSpeed(int $bps): string {
                     <option value="<?= $vlanId ?>"><?= $vlanId ?></option>
                 <?php endforeach; ?>
             </select>
-            <button class="btn btn-secondary" id="btn100Toggle" onclick="showAllHidden()" disabled title="Gizlenen satırları tekrar göster">
-                <i class="fas fa-eye"></i> <span id="btn100Label">Gizlileri Göster (0)</span>
+            <button class="btn btn-secondary" id="btn100Toggle" onclick="toggleHiddenView()" disabled title="Gizlenen satırları listele">
+                <i class="fas fa-eye" id="btn100Icon"></i> <span id="btn100Label">Gizlileri Göster (0)</span>
             </button>
             <button class="btn btn-secondary" onclick="exportXLSX()">
                 <i class="fas fa-file-excel"></i> Excel
@@ -694,6 +694,7 @@ function refreshCurrent() {
 // ── Per-row hide (localStorage) ──────────────────────────────────────────────
 const LS_KEY = 'reports_hidden_rows';
 let hiddenRows = new Set(JSON.parse(localStorage.getItem(LS_KEY) || '[]'));
+let showingHidden = false;
 
 function saveHidden() {
     localStorage.setItem(LS_KEY, JSON.stringify([...hiddenRows]));
@@ -703,27 +704,61 @@ function hideRow(key) {
     hiddenRows.add(key);
     saveHidden();
     updateHideBtn();
+    updateRowButtons();
     filterTable();
 }
 
-function showAllHidden() {
-    hiddenRows.clear();
+function showRow(key) {
+    hiddenRows.delete(key);
     saveHidden();
+    if (hiddenRows.size === 0) {
+        showingHidden = false;
+    }
     updateHideBtn();
+    updateRowButtons();
+    filterTable();
+}
+
+function toggleHiddenView() {
+    showingHidden = !showingHidden;
+    updateHideBtn();
+    updateRowButtons();
     filterTable();
 }
 
 function updateHideBtn() {
     const btn   = document.getElementById('btn100Toggle');
     const label = document.getElementById('btn100Label');
+    const icon  = document.getElementById('btn100Icon');
     const n     = hiddenRows.size;
-    label.textContent = 'Gizlileri Göster (' + n + ')';
-    btn.disabled      = n === 0;
-    if (n > 0) {
+    if (showingHidden) {
+        label.textContent = '← Tüm Portlar';
+        icon.className    = 'fas fa-list';
+        btn.disabled      = false;
         btn.classList.add('active');
     } else {
-        btn.classList.remove('active');
+        label.textContent = 'Gizlileri Göster (' + n + ')';
+        icon.className    = 'fas fa-eye';
+        btn.disabled      = n === 0;
+        btn.classList.toggle('active', n > 0);
     }
+}
+
+function updateRowButtons() {
+    document.querySelectorAll('#tableBody tr').forEach(tr => {
+        const key     = tr.dataset.rowkey || '';
+        const hideBtn = tr.querySelector('.btn-hide-row');
+        if (!hideBtn) return;
+        if (showingHidden) {
+            hideBtn.innerHTML = '<i class="fas fa-eye"></i> Göster';
+            hideBtn.onclick   = () => showRow(key);
+            hideBtn.title     = 'Bu satırı geri göster';
+        } else {
+            hideBtn.innerHTML = '<i class="fas fa-eye-slash"></i> Gizle';
+            hideBtn.onclick   = () => hideRow(key);
+            hideBtn.title     = 'Bu satırı gizle';
+        }
+    });
 }
 
 // ── Filter ───────────────────────────────────────────────────────────────────
@@ -740,31 +775,38 @@ function filterTable() {
         const rowSwitch = tr.dataset.switch || '';
         const rowSpeed  = tr.dataset.speed  || '';
         const rowVlan   = tr.dataset.vlan   || '';
+        const rowKey    = tr.dataset.rowkey || '';
 
-        const matchQ  = !q        || text.includes(q);
-        const matchSw = !swFilter || rowSwitch === swFilter;
-        const matchSp = !spFilter || rowSpeed  === spFilter;
-        let matchVlan = true;
-        if (vlanFilter === '50_70') {
-            matchVlan = rowVlan === '50' || rowVlan === '70';
-        } else if (vlanFilter !== '') {
-            matchVlan = rowVlan === vlanFilter;
+        let show;
+        if (showingHidden) {
+            // hidden-list view: show only hidden rows regardless of filters
+            show = hiddenRows.has(rowKey);
+        } else {
+            const matchQ  = !q        || text.includes(q);
+            const matchSw = !swFilter || rowSwitch === swFilter;
+            const matchSp = !spFilter || rowSpeed  === spFilter;
+            let matchVlan = true;
+            if (vlanFilter === '50_70') {
+                matchVlan = rowVlan === '50' || rowVlan === '70';
+            } else if (vlanFilter !== '') {
+                matchVlan = rowVlan === vlanFilter;
+            }
+            show = matchQ && matchSw && matchSp && matchVlan && !hiddenRows.has(rowKey);
         }
-        // hide individually hidden rows
-        const rowKey   = tr.dataset.rowkey || '';
-        const matchHide = !hiddenRows.has(rowKey);
 
-        const show = matchQ && matchSw && matchSp && matchVlan && matchHide;
         tr.style.display = show ? '' : 'none';
         if (show) visible++;
     });
 
     const rc = document.getElementById('rowCount');
-    if (rc) rc.innerHTML = `<strong>${visible}</strong> kayıt gösteriliyor.`;
+    if (rc) rc.innerHTML = showingHidden
+        ? `<strong>${visible}</strong> gizli kayıt listeleniyor.`
+        : `<strong>${visible}</strong> kayıt gösteriliyor.`;
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     updateHideBtn();
+    updateRowButtons();
     filterTable();
 });
 
