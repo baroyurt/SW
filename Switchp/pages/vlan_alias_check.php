@@ -407,15 +407,15 @@ arsort($vlanGroups);
     <!-- Stats -->
     <div class="stats-bar">
         <div class="stat-card info">
-            <div class="num"><?= $totalScanned ?></div>
+            <div class="num" id="statTotalScanned"><?= $totalScanned ?></div>
             <div class="label">Taranan Port</div>
         </div>
         <div class="stat-card bad">
-            <div class="num"><?= $mismatchCount ?></div>
+            <div class="num" id="statMismatch"><?= $mismatchCount ?></div>
             <div class="label">Uyumsuz Port</div>
         </div>
         <div class="stat-card ok">
-            <div class="num"><?= max(0, $totalScanned - $mismatchCount) ?></div>
+            <div class="num" id="statMatch"><?= max(0, $totalScanned - $mismatchCount) ?></div>
             <div class="label">Uyumlu Port</div>
         </div>
         <div class="stat-card info">
@@ -581,6 +581,15 @@ function filterTable() {
     });
     const rc = document.getElementById('rowCount');
     if (rc) rc.innerHTML = `<strong>${visible}</strong> kayıt gösteriliyor.`;
+    // Update stat cards to reflect visible (non-hidden) counts
+    const totalRows  = rows.length;
+    const hiddenCnt  = vacHiddenRows.size;
+    const visibleMismatch = Math.max(0, totalRows - hiddenCnt);
+    const elMismatch = document.getElementById('statMismatch');
+    const elMatch    = document.getElementById('statMatch');
+    const elTotal    = document.getElementById('statTotalScanned');
+    if (elMismatch) elMismatch.textContent = visibleMismatch;
+    if (elMatch)    elMatch.textContent    = Math.max(0, (elTotal ? parseInt(elTotal.textContent) : totalRows) - visibleMismatch);
 }
 
 document.addEventListener('DOMContentLoaded', function() {

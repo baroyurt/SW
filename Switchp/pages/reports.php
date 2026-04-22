@@ -621,7 +621,7 @@ function formatSpeed(int $bps): string {
                         <td><span class="badge badge-up">UP</span></td>
                         <td style="color:var(--text-light)"><?= $ts ?></td>
                         <td style="text-align:right;white-space:nowrap;padding-right:12px">
-                            <a class="btn-goto-port" href="../index.php?switch=<?= urlencode($row['switch_name']) ?>&port=<?= (int)$row['port_number'] ?>" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</a>
+                            <a class="btn-goto-port" href="../index.php?switch=<?= urlencode($row['switch_name']) ?>&port=<?= (int)$row['port_number'] ?>" target="_parent" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</a>
                             <button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
                         </td>
                     </tr>
