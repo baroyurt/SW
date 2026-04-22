@@ -428,6 +428,71 @@ function formatSpeed(int $bps): string {
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* Inline port-detail panel (shown at bottom when "Porta Git" clicked standalone) */
+        #port-inline-panel {
+            display: none;
+            margin-top: 24px;
+            background: var(--dark-light);
+            border: 1px solid var(--primary);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        #port-inline-panel.visible { display: block; }
+        .port-inline-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            background: #0f1f3a;
+            border-bottom: 1px solid var(--border);
+        }
+        .port-inline-header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .port-inline-header-left i { color: var(--primary); }
+        .port-inline-header-right { display: flex; gap: 6px; }
+        .btn-port-inline-close {
+            padding: 4px 12px; font-size: 12px; border-radius: 4px;
+            border: 1px solid var(--border); background: transparent;
+            color: var(--text-light); cursor: pointer;
+        }
+        .btn-port-inline-close:hover { border-color: var(--danger); color: var(--danger); }
+        .btn-port-inline-open {
+            padding: 4px 12px; font-size: 12px; border-radius: 4px;
+            border: 1px solid var(--primary); background: transparent;
+            color: var(--primary); cursor: pointer; text-decoration: none;
+            display: inline-flex; align-items: center; gap: 4px;
+        }
+        .btn-port-inline-open:hover { background: rgba(59,130,246,0.12); }
+        .port-inline-frame-wrap {
+            position: relative;
+            height: 600px;
+        }
+        .port-inline-frame-wrap .iframe-loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--dark);
+            flex-direction: column;
+            gap: 16px;
+            color: var(--text-light);
+            font-size: 14px;
+            z-index: 2;
+        }
+        #portInlineFrame {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
         @media (max-width: 768px) {
             .stats-bar { grid-template-columns: repeat(2,1fr); }
             .panel-native { padding: 14px; }
@@ -625,7 +690,7 @@ function formatSpeed(int $bps): string {
                         <td><span class="badge badge-up">UP</span></td>
                         <td style="color:var(--text-light)"><?= $ts ?></td>
                         <td style="text-align:right;white-space:nowrap;padding-right:12px">
-                            <button class="btn-goto-port" onclick="window.parent.postMessage({action:'navigateToPort',switchName:<?= htmlspecialchars(json_encode($row['switch_name']), ENT_QUOTES) ?>,portNumber:<?= (int)$row['port_number'] ?>},'*')" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
+                            <button class="btn-goto-port" onclick="gotoPortInline(<?= htmlspecialchars(json_encode($row['switch_name']), ENT_QUOTES) ?>,<?= (int)$row['port_number'] ?>)" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
                             <button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
                         </td>
                     </tr>
@@ -650,6 +715,29 @@ function formatSpeed(int $bps): string {
     </div>
 
 </div><!-- /panel-wrapper -->
+
+<!-- ── Inline Port Detail Panel ──────────────────────────────────────────── -->
+<div id="port-inline-panel">
+    <div class="port-inline-header">
+        <div class="port-inline-header-left">
+            <i class="fas fa-plug"></i>
+            <span id="portInlineTitle">Port Detayı</span>
+        </div>
+        <div class="port-inline-header-right">
+            <a id="portInlineOpenLink" href="#" target="_blank" class="btn-port-inline-open" title="Tam sayfada aç">
+                <i class="fas fa-external-link-alt"></i> Tam Sayfada Aç
+            </a>
+            <button class="btn-port-inline-close" onclick="closePortInline()"><i class="fas fa-times"></i> Kapat</button>
+        </div>
+    </div>
+    <div class="port-inline-frame-wrap">
+        <div class="iframe-loading" id="portInlineLoading">
+            <div class="spinner"></div>
+            <span>Yükleniyor…</span>
+        </div>
+        <iframe id="portInlineFrame" onload="onPortInlineLoad()"></iframe>
+    </div>
+</div>
 
 <script>
 // ── Panel switching ──────────────────────────────────────────────────────────
@@ -874,6 +962,47 @@ function exportXLSX() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Yavaş Portlar');
     XLSX.writeFile(wb, 'dusuk_hizli_portlar_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+
+// ── Inline Port Detail ────────────────────────────────────────────────────────
+function gotoPortInline(switchName, portNumber) {
+    // When embedded inside parent iframe – delegate to parent
+    if (window.parent !== window) {
+        window.parent.postMessage({ action: 'navigateToPort', switchName, portNumber }, '*');
+        return;
+    }
+    // Standalone: show inline panel
+    const url = `../index.php?switch=${encodeURIComponent(switchName)}&port=${portNumber}`;
+    const panel   = document.getElementById('port-inline-panel');
+    const frame   = document.getElementById('portInlineFrame');
+    const loading = document.getElementById('portInlineLoading');
+    const title   = document.getElementById('portInlineTitle');
+    const link    = document.getElementById('portInlineOpenLink');
+
+    title.textContent = `${switchName} – Port ${portNumber}`;
+    link.href = url;
+
+    loading.style.display = 'flex';
+    frame.style.opacity = '0';
+    frame.src = url;
+
+    panel.classList.add('visible');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function onPortInlineLoad() {
+    const frame   = document.getElementById('portInlineFrame');
+    const loading = document.getElementById('portInlineLoading');
+    loading.style.display = 'none';
+    frame.style.opacity = '1';
+    frame.style.transition = 'opacity 0.2s';
+}
+
+function closePortInline() {
+    const panel = document.getElementById('port-inline-panel');
+    const frame = document.getElementById('portInlineFrame');
+    panel.classList.remove('visible');
+    frame.src = 'about:blank';
 }
 </script>
 </body>
