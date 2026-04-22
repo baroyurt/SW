@@ -809,6 +809,21 @@ header("Expires: 0");
             border: 2px solid rgba(56, 189, 248, 0.3);
             margin-bottom: 30px;
         }
+
+        /* When port detail is triggered from an embedded iframe (e.g. reports),
+           float it over the current page instead of navigating away */
+        .detail-panel.from-reports {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 900;
+            margin: 0;
+            border-radius: 0;
+            overflow-y: auto;
+            padding: 30px;
+        }
         
         .detail-header {
             display: flex;
@@ -8523,6 +8538,7 @@ if (isHub) {
         function hideDetailPanel() {
             const detailPanel = document.getElementById('detail-panel');
             detailPanel.style.display = 'none';
+            detailPanel.classList.remove('from-reports');
             selectedSwitch = null;
         }
 
@@ -10751,7 +10767,7 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
             setTimeout(handleURLParameters, 1000); // Wait for data to load
         });
         
-        // Listen for messages from iframe (e.g., port_alarms.php)
+        // Listen for messages from iframe (e.g., port_alarms.php, reports.php)
         window.addEventListener('message', function(event) {
             // Security check - you may want to add origin validation
             if (event.data && event.data.action === 'navigateToPort') {
@@ -10760,18 +10776,16 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
                 
                 console.log('Received navigateToPort message:', switchName, portNumber);
                 
-                // Navigate to switches page (shows page + updates nav)
-                switchPage('switches');
-                
-                // Wait for switches page to render, then find and open the switch
-                setTimeout(() => {
-                    const switchToOpen = switches.find(s => s.name === switchName);
-                    if (switchToOpen) {
-                        showSwitchDetail(switchToOpen, portNumber);
-                    } else {
-                        showToast('Switch bulunamadı: ' + switchName, 'error');
-                    }
-                }, 300);
+                const switchToOpen = switches.find(s => s.name === switchName);
+                if (switchToOpen) {
+                    // Show the detail panel as a floating overlay without
+                    // navigating away from the currently active page (e.g. reports)
+                    const detailPanel = document.getElementById('detail-panel');
+                    detailPanel.classList.add('from-reports');
+                    showSwitchDetail(switchToOpen, portNumber);
+                } else {
+                    showToast('Switch bulunamadı: ' + switchName, 'error');
+                }
             }
         });
     </script>

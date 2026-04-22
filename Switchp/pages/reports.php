@@ -966,23 +966,13 @@ function exportXLSX() {
 
 // ── Inline Port Detail ────────────────────────────────────────────────────────
 function gotoPortInline(switchName, portNumber) {
-    // Always show inline panel – never navigate away from the reports page
-    const url = `../index.php?switch=${encodeURIComponent(switchName)}&port=${portNumber}`;
-    const panel   = document.getElementById('port-inline-panel');
-    const frame   = document.getElementById('portInlineFrame');
-    const loading = document.getElementById('portInlineLoading');
-    const title   = document.getElementById('portInlineTitle');
-    const link    = document.getElementById('portInlineOpenLink');
-
-    title.textContent = `${switchName} – Port ${portNumber}`;
-    link.href = url;
-
-    loading.style.display = 'flex';
-    frame.style.opacity = '0';
-    frame.src = url;
-
-    panel.classList.add('visible');
-    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Delegate to parent index.php to show port detail as floating overlay
+    if (window.parent !== window) {
+        window.parent.postMessage({ action: 'navigateToPort', switchName, portNumber }, '*');
+        return;
+    }
+    // Standalone fallback: open in new tab
+    window.open(`../index.php?switch=${encodeURIComponent(switchName)}&port=${portNumber}`, '_blank');
 }
 
 function onPortInlineLoad() {
