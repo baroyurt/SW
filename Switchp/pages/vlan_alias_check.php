@@ -302,6 +302,9 @@ arsort($vlanGroups);
             color: var(--text);
         }
         .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
+        .btn-secondary:disabled { opacity:.45; cursor:not-allowed; }
+        .btn-hide-row { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #ef4444; color:#ef4444; background:transparent; cursor:pointer; white-space:nowrap; }
+        .btn-hide-row:hover { background:rgba(239,68,68,0.12); }
 
         /* ── Table ── */
         .table-wrap {
@@ -459,6 +462,9 @@ arsort($vlanGroups);
         <button class="btn btn-secondary" onclick="exportCSV()">
             <i class="fas fa-file-csv"></i> CSV
         </button>
+        <button class="btn btn-secondary" id="btnShowHidden" onclick="vacShowAllHidden()" disabled title="Gizlenen satırları tekrar göster">
+            <i class="fas fa-eye"></i> <span id="labelShowHidden">Gizlileri Göster (0)</span>
+        </button>
     </div>
 
     <!-- Table -->
@@ -482,6 +488,7 @@ arsort($vlanGroups);
                     <th onclick="sortTable(6)">Mevcut Alias <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(7)">Durum <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(8)">Son Güncelleme <span class="sort-icon fas fa-sort"></span></th>
+                        <th style="width:70px"></th>
                 </tr>
             </thead>
             <tbody id="tableBody">
@@ -492,7 +499,10 @@ arsort($vlanGroups);
                     $statusClass = ($row['oper_status'] === 'up') ? 'badge-up' : 'badge-down';
                     $statusLabel = strtoupper($row['oper_status'] ?? 'unknown');
                 ?>
-                <tr>
+                <?php
+                    $vacKey = htmlspecialchars($row['switch_name'] . ':' . (int)$row['port_number']);
+                ?>
+                <tr data-rowkey="<?= $vacKey ?>">
                     <td><?= htmlspecialchars($row['switch_name'] ?? '-') ?></td>
                     <td><?= htmlspecialchars($row['switch_ip'] ?? '-') ?></td>
                     <td><?= (int)$row['port_number'] ?></td>
@@ -505,6 +515,7 @@ arsort($vlanGroups);
                     <td style="color:var(--text-light);font-size:12px"><?= htmlspecialchars($row['alias']) ?></td>
                     <td><span class="badge <?= $statusClass ?>"><?= $statusLabel ?></span></td>
                     <td style="color:var(--text-light)"><?= $ts ?></td>
+                    <td style="text-align:center"><button class="btn-hide-row" onclick="vacHideRow('<?= $vacKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -518,6 +529,35 @@ arsort($vlanGroups);
 </div>
 
 <script>
+// ── Per-row hide (localStorage) ───────────────────────────────────────
+const VAC_LS_KEY = 'vac_hidden_rows';
+let vacHiddenRows = new Set(JSON.parse(localStorage.getItem(VAC_LS_KEY) || '[]'));
+
+function vacSaveHidden() { localStorage.setItem(VAC_LS_KEY, JSON.stringify([...vacHiddenRows])); }
+
+function vacHideRow(key) {
+    vacHiddenRows.add(key);
+    vacSaveHidden();
+    vacUpdateBtn();
+    filterTable();
+}
+
+function vacShowAllHidden() {
+    vacHiddenRows.clear();
+    vacSaveHidden();
+    vacUpdateBtn();
+    filterTable();
+}
+
+function vacUpdateBtn() {
+    const btn   = document.getElementById('btnShowHidden');
+    const label = document.getElementById('labelShowHidden');
+    const n     = vacHiddenRows.size;
+    label.textContent = 'Gizlileri Göster (' + n + ')';
+    btn.disabled = n === 0;
+    btn.classList.toggle('active', n > 0);
+}
+
 // ── Filter ──────────────────────────────────────────────────────────
 function filterTable() {
     const q      = document.getElementById('searchInput').value.toLowerCase();
@@ -530,16 +570,23 @@ function filterTable() {
         const text  = tr.textContent.toLowerCase();
         const rowVlan   = cells[3]?.textContent.trim();
         const rowStatus = cells[7]?.textContent.trim().toLowerCase();
+        const rowKey    = tr.dataset.rowkey || '';
         const matchQ      = !q      || text.includes(q);
         const matchVlan   = !vlan   || rowVlan   === vlan;
         const matchStatus = !status || rowStatus === status;
-        const show = matchQ && matchVlan && matchStatus;
+        const matchHide   = !vacHiddenRows.has(rowKey);
+        const show = matchQ && matchVlan && matchStatus && matchHide;
         tr.style.display = show ? '' : 'none';
         if (show) visible++;
     });
     const rc = document.getElementById('rowCount');
     if (rc) rc.innerHTML = `<strong>${visible}</strong> kayıt gösteriliyor.`;
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    vacUpdateBtn();
+    filterTable();
+});
 
 // ── Sort ─────────────────────────────────────────────────────────────
 let sortState = { col: -1, asc: true };

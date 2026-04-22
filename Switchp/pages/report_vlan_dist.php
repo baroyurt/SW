@@ -114,13 +114,19 @@ foreach ($swRows as $r) {
     .row-count { font-size:12px; color:var(--text-light); padding:8px 18px; border-top:1px solid var(--border); }
 
     /* Switch breakdown table */
-    .table-wrap { background:var(--dark-light); border-radius:12px; border:1px solid var(--border); overflow:auto; margin-top:24px; }
-    table { width:100%; border-collapse:collapse; min-width:600px; }
-    thead th { background:#0f1f3a; padding:10px 14px; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-light); text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
+    .table-wrap { background:var(--dark-light); border-radius:12px; border:1px solid var(--border); overflow:hidden; margin-top:24px; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; }
+    thead th { background:#0f1f3a; padding:8px 6px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-light); text-align:center; border-bottom:1px solid var(--border); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    thead th:first-child { text-align:left; padding-left:14px; min-width:130px; width:130px; }
+    thead th:not(:first-child) { min-width:52px; width:52px; }
+    /* Rotate VLAN column headers to save horizontal space */
+    thead th.vlan-col { padding:40px 2px 6px; position:relative; vertical-align:bottom; }
+    thead th.vlan-col span { position:absolute; bottom:6px; left:50%; transform:translateX(-50%) rotate(-60deg); transform-origin:bottom center; white-space:nowrap; font-size:10px; }
     tbody tr { border-bottom:1px solid #1e2a3a; }
     tbody tr:last-child { border-bottom:none; }
     tbody tr:hover { background:#1a2a40; }
-    tbody td { padding:10px 14px; font-size:13px; }
+    tbody td { padding:8px 6px; font-size:12px; text-align:center; }
+    tbody td:first-child { text-align:left; padding-left:14px; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .btn { padding:8px 14px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:600; display:inline-flex; align-items:center; gap:6px; }
     .btn-secondary { background:var(--dark-light); border:1px solid var(--border); color:var(--text); }
     .btn-secondary:hover { border-color:var(--primary); color:var(--primary); }
@@ -213,7 +219,7 @@ foreach ($swRows as $r) {
                     $allVlans = array_unique(array_column($swRows, 'vlan_id'));
                     sort($allVlans);
                     foreach ($allVlans as $v): ?>
-                        <th>VLAN <?= $v ?></th>
+                        <th class="vlan-col"><span><?= $v ?></span></th>
                     <?php endforeach; ?>
                 </tr>
             </thead>

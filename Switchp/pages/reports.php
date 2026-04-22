@@ -360,6 +360,8 @@ function formatSpeed(int $bps): string {
         .btn-secondary:disabled { opacity:.45; cursor:not-allowed; }
         .btn-hide-row { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #ef4444; color:#ef4444; background:transparent; cursor:pointer; white-space:nowrap; }
         .btn-hide-row:hover { background:rgba(239,68,68,0.12); }
+        .btn-goto-port { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #3b82f6; color:#3b82f6; background:transparent; cursor:pointer; white-space:nowrap; text-decoration:none; display:inline-flex; align-items:center; gap:4px; margin-right:4px; }
+        .btn-goto-port:hover { background:rgba(59,130,246,0.12); }
 
         .table-wrap {
             background: var(--dark-light);
@@ -524,47 +526,6 @@ function formatSpeed(int $bps): string {
             </span>
         </div>
 
-        <!-- Stats -->
-        <div class="stats-bar">
-            <div class="stat-card warn" id="statSlowPorts">
-                <div class="num" id="statSlowPortsNum"><?= $portCnt ?></div>
-                <div class="label">Yavaş Port</div>
-            </div>
-            <div class="stat-card info">
-                <div class="num"><?= count($speedGroups) ?></div>
-                <div class="label">Farklı Hız</div>
-            </div>
-            <div class="stat-card info">
-                <div class="num"><?= count($switchGroups) ?></div>
-                <div class="label">Etkilenen Switch</div>
-            </div>
-            <?php
-            $cnt10 = count(array_filter($ports, fn($p) => $p['port_speed'] <= 10_000_000));
-            ?>
-            <div class="stat-card <?= $cnt10 > 0 ? 'danger' : 'info' ?>" id="statTenMbps">
-                <div class="num" id="statTenMbpsNum"><?= $cnt10 ?></div>
-                <div class="label">10 Mbps ve Altı</div>
-            </div>
-        </div>
-
-        <?php if (!empty($speedGroups)): ?>
-        <div class="chip-bar">
-            <span class="label"><i class="fas fa-bolt"></i>&nbsp; Hız Dağılımı</span>
-            <?php foreach ($speedGroups as $speed => $cnt): ?>
-                <span class="chip chip-speed"><?= htmlspecialchars($speed) ?> &nbsp;<strong><?= $cnt ?></strong></span>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-
-        <?php if (!empty($switchGroups)): ?>
-        <div class="chip-bar">
-            <span class="label"><i class="fas fa-server"></i>&nbsp; Switch</span>
-            <?php foreach ($switchGroups as $sw => $cnt): ?>
-                <span class="chip chip-switch"><?= htmlspecialchars($sw) ?> &nbsp;<strong><?= $cnt ?></strong></span>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-
         <!-- Toolbar -->
         <div class="toolbar">
             <div class="search-box">
@@ -580,7 +541,7 @@ function formatSpeed(int $bps): string {
             <select class="filter-select" id="speedFilter" onchange="filterTable()">
                 <option value="">Tüm Hızlar</option>
                 <?php foreach (array_keys($speedGroups) as $speed): ?>
-                    <option value="<?= htmlspecialchars($speed) ?>"><?= htmlspecialchars($speed) ?></option>
+                    <option value="<?= htmlspecialchars($speed) ?>"<?= $speed === '100 Mbps' ? ' selected' : '' ?>><?= htmlspecialchars($speed) ?></option>
                 <?php endforeach; ?>
             </select>
             <select class="filter-select" id="vlanFilter" onchange="filterTable()">
@@ -617,7 +578,7 @@ function formatSpeed(int $bps): string {
                         <th onclick="sortTable(4)">Bağlantı <span class="sort-icon fas fa-sort"></span></th>
                         <th onclick="sortTable(5)">Durum <span class="sort-icon fas fa-sort"></span></th>
                         <th onclick="sortTable(6)">Son Güncelleme <span class="sort-icon fas fa-sort"></span></th>
-                        <th style="width:70px"></th>
+                        <th style="width:140px"></th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
@@ -659,7 +620,10 @@ function formatSpeed(int $bps): string {
                         <td style="font-size:12px;line-height:1.4"><?= $connHtml ?></td>
                         <td><span class="badge badge-up">UP</span></td>
                         <td style="color:var(--text-light)"><?= $ts ?></td>
-                        <td style="text-align:center"><button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button></td>
+                        <td style="text-align:right;white-space:nowrap;padding-right:12px">
+                            <a class="btn-goto-port" href="../index.php?switch=<?= urlencode($row['switch_name']) ?>&port=<?= (int)$row['port_number'] ?>" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</a>
+                            <button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -779,7 +743,7 @@ function filterTable() {
     const spFilter   = document.getElementById('speedFilter').value;
     const vlanFilter = document.getElementById('vlanFilter').value;
     const rows       = document.querySelectorAll('#tableBody tr');
-    let visible = 0, visible10 = 0;
+    let visible = 0;
 
     rows.forEach(tr => {
         const text      = tr.textContent.toLowerCase();
@@ -802,25 +766,11 @@ function filterTable() {
 
         const show = matchQ && matchSw && matchSp && matchVlan && matchHide;
         tr.style.display = show ? '' : 'none';
-        if (show) {
-            visible++;
-            const spd = rowSpeed.replace(' Mbps','');
-            if (!isNaN(spd) && parseInt(spd) <= 10) visible10++;
-        }
+        if (show) visible++;
     });
 
     const rc = document.getElementById('rowCount');
     if (rc) rc.innerHTML = `<strong>${visible}</strong> kayıt gösteriliyor.`;
-
-    const slowNum  = document.getElementById('statSlowPortsNum');
-    const tenNum   = document.getElementById('statTenMbpsNum');
-    const slowCard = document.getElementById('statSlowPorts');
-    if (slowNum) slowNum.textContent = visible;
-    if (slowCard) {
-        slowCard.classList.toggle('warn', visible > 0);
-        slowCard.classList.toggle('info', visible === 0);
-    }
-    if (tenNum) tenNum.textContent = visible10;
 }
 
 document.addEventListener('DOMContentLoaded', function() {
