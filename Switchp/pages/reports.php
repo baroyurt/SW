@@ -29,10 +29,14 @@ $sql = "
         psd.port_speed,
         psd.poll_timestamp,
         mdr.device_name   AS conn_device,
-        mdr.ip_address    AS conn_ip
+        mdr.ip_address    AS conn_ip,
+        p.device          AS port_device,
+        p.ip              AS port_ip
     FROM port_status_data psd
     JOIN snmp_devices sd ON sd.id = psd.device_id
     LEFT JOIN mac_device_registry mdr ON mdr.mac_address = psd.mac_address
+    LEFT JOIN switches sw ON (sw.name = sd.name OR sw.ip = sd.ip_address)
+    LEFT JOIN ports p ON p.switch_id = sw.id AND p.port_no = psd.port_number
     WHERE psd.oper_status = 'up'
       AND psd.port_speed IS NOT NULL
       AND psd.port_speed > 0
@@ -582,6 +586,16 @@ function formatSpeed(int $bps): string {
                             : '-';
                         $connDevice = trim($row['conn_device'] ?? '');
                         $connIp     = trim($row['conn_ip']     ?? '');
+                        // Fallback to ports.device / ports.ip when mac_device_registry has no match
+                        if ($connDevice === '') {
+                            $pd = trim($row['port_device'] ?? '');
+                            if ($pd !== '' && strtoupper($pd) !== 'BOŞ') {
+                                $connDevice = $pd;
+                            }
+                        }
+                        if ($connIp === '') {
+                            $connIp = trim($row['port_ip'] ?? '');
+                        }
                         $alias      = trim($row['alias']       ?? '');
                         $portMac    = trim($row['port_mac']    ?? '');
                         $aliasIsGeneric = preg_match('/^(DEVICE|CIHAZ\s*\d*)$/i', $alias);
