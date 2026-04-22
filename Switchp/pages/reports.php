@@ -88,7 +88,6 @@ function formatSpeed(int $bps): string {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        html { zoom: 0.95; }
         :root {
             --primary:      #3b82f6;
             --primary-dark: #2563eb;
@@ -97,37 +96,162 @@ function formatSpeed(int $bps): string {
             --danger:       #ef4444;
             --dark:         #0f172a;
             --dark-light:   #1e293b;
+            --nav-bg:       rgba(15,23,42,0.97);
             --text:         #e2e8f0;
             --text-light:   #94a3b8;
             --border:       #334155;
+            --nav-h:        58px;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: var(--dark);
             color: var(--text);
-            padding: 20px;
+            overflow-x: hidden;
         }
-        .container { max-width: 1400px; margin: 0 auto; }
 
-        /* ── Header ── */
-        .header {
-            background: var(--dark-light);
-            padding: 25px 30px;
-            border-radius: 15px;
-            border: 1px solid var(--border);
-            margin-bottom: 20px;
+        /* ═══════════════════════════════════════════════════════
+           STICKY TOP NAV
+        ═══════════════════════════════════════════════════════ */
+        .top-nav {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            height: var(--nav-h);
+            background: var(--nav-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
-            gap: 20px;
+            gap: 0;
+            padding: 0 16px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: thin;
+            scrollbar-color: #334155 transparent;
         }
-        .header-icon { font-size: 36px; color: var(--primary); flex-shrink: 0; }
-        .header h1   { color: var(--primary); font-size: 24px; margin-bottom: 6px; }
-        .header p    { color: var(--text-light); font-size: 13px; line-height: 1.5; }
+        .top-nav::-webkit-scrollbar { height: 3px; }
+        .top-nav::-webkit-scrollbar-track { background: transparent; }
+        .top-nav::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
 
-        /* ── Rapor Kartları ── */
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0 14px 0 4px;
+            border-right: 1px solid var(--border);
+            margin-right: 10px;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        .nav-brand i { color: var(--primary); font-size: 18px; }
+        .nav-brand span { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: 0.3px; }
+
+        .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 13px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--text-light);
+            font-size: 12.5px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
+            transition: color 0.15s, background 0.15s, border-color 0.15s;
+            text-decoration: none;
+            margin: 0 2px;
+        }
+        .nav-btn i { font-size: 13px; flex-shrink: 0; }
+        .nav-btn:hover {
+            color: var(--text);
+            background: rgba(255,255,255,0.06);
+            border-color: var(--border);
+        }
+        .nav-btn.active {
+            color: #fff;
+            background: rgba(59,130,246,0.18);
+            border-color: rgba(59,130,246,0.5);
+        }
+        .nav-btn.active i { color: var(--primary); }
+
+        /* Renk aksan noktası */
+        .nav-btn .dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .nav-spacer { flex: 1; min-width: 8px; }
+
+        .nav-refresh {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-light);
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .nav-refresh:hover { color: var(--primary); border-color: var(--primary); }
+
+        /* ═══════════════════════════════════════════════════════
+           PANEL WRAPPER
+        ═══════════════════════════════════════════════════════ */
+        .panel-wrapper {
+            height: calc(100vh - var(--nav-h));
+            position: relative;
+        }
+
+        /* Built-in slow-ports panel */
+        .panel-native {
+            height: 100%;
+            overflow-y: auto;
+            padding: 24px 24px 32px;
+            display: none;
+        }
+        .panel-native.active { display: block; }
+
+        /* Iframe panel */
+        .panel-iframe {
+            height: 100%;
+            display: none;
+        }
+        .panel-iframe.active { display: block; }
+        .panel-iframe iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        /* Breadcrumb strip inside native panel */
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 18px;
+            font-size: 12px;
+            color: var(--text-light);
+        }
+        .breadcrumb i { color: var(--primary); }
+        .breadcrumb strong { color: var(--text); }
+
+        /* ═══════════════════════════════════════════════════════
+           STATS + TABLE (within native panel)
+        ═══════════════════════════════════════════════════════ */
         .section-title {
-            font-size: 13px;
+            font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 1px;
             color: var(--text-light);
@@ -138,119 +262,64 @@ function formatSpeed(int $bps): string {
         }
         .section-title i { color: var(--primary); }
 
-        .report-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-            gap: 16px;
-            margin-bottom: 30px;
-        }
-        .report-card {
-            background: var(--dark-light);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            text-decoration: none;
-            color: var(--text);
-            transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
-        }
-        .report-card:hover {
-            border-color: var(--primary);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(59,130,246,0.15);
-            color: var(--text);
-            text-decoration: none;
-        }
-        .report-card .card-icon {
-            font-size: 28px;
-            margin-bottom: 2px;
-        }
-        .report-card .card-title { font-size: 15px; font-weight: 600; }
-        .report-card .card-desc  { font-size: 12px; color: var(--text-light); line-height: 1.5; }
-        .report-card .card-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-            width: fit-content;
-        }
-        .badge-blue   { background:#0f1f3a; color:#93c5fd; border:1px solid #1d4ed8; }
-        .badge-yellow { background:#2d1f07; color:#fbbf24; border:1px solid #d97706; }
-        .badge-red    { background:#2b0d0d; color:#f87171; border:1px solid #b91c1c; }
-        .badge-purple { background:#1a0d2b; color:#c4b5fd; border:1px solid #7c3aed; }
-        .badge-green  { background:#0d2b1a; color:#4ade80; border:1px solid #16a34a; }
-
-        /* ── Stats bar ── */
         .stats-bar {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 14px;
             margin-bottom: 20px;
         }
         .stat-card {
             background: var(--dark-light);
-            padding: 20px;
+            padding: 18px;
             border-radius: 10px;
             border: 1px solid var(--border);
             text-align: center;
         }
-        .stat-card .num   { font-size: 32px; font-weight: 700; margin-bottom: 4px; }
-        .stat-card .label { font-size: 12px; color: var(--text-light); text-transform: uppercase; letter-spacing: 1px; }
-        .stat-card.warn .num  { color: var(--warning); }
-        .stat-card.info .num  { color: var(--primary); }
+        .stat-card .num   { font-size: 30px; font-weight: 700; margin-bottom: 4px; }
+        .stat-card .label { font-size: 11px; color: var(--text-light); text-transform: uppercase; letter-spacing: 1px; }
+        .stat-card.warn   .num { color: var(--warning); }
+        .stat-card.info   .num { color: var(--primary); }
         .stat-card.danger .num { color: var(--danger); }
 
-        /* ── Speed/Switch chips ── */
         .chip-bar {
             background: var(--dark-light);
-            padding: 14px 18px;
+            padding: 12px 16px;
             border-radius: 10px;
             border: 1px solid var(--border);
-            margin-bottom: 16px;
+            margin-bottom: 14px;
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
             align-items: center;
         }
         .chip-bar .label {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-light);
             text-transform: uppercase;
             letter-spacing: 1px;
             flex-shrink: 0;
             margin-right: 4px;
         }
-        .chip {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
+        .chip { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
         .chip-speed  { background:#2d1f07; color:#fbbf24; border:1px solid #d97706; }
         .chip-switch { background:#0f1f3a; color:#93c5fd; border:1px solid #1d4ed8; }
 
-        /* ── Toolbar ── */
         .toolbar {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             align-items: center;
             flex-wrap: wrap;
-            margin-bottom: 16px;
+            margin-bottom: 14px;
         }
-        .search-box { position: relative; flex: 1; min-width: 220px; }
+        .search-box { position: relative; flex: 1; min-width: 200px; }
         .search-box i {
-            position: absolute; left: 12px; top: 50%;
+            position: absolute; left: 10px; top: 50%;
             transform: translateY(-50%);
-            color: var(--text-light); font-size: 13px;
+            color: var(--text-light); font-size: 12px;
         }
         .search-box input {
             width: 100%;
-            padding: 9px 12px 9px 34px;
+            padding: 8px 10px 8px 32px;
             background: var(--dark-light);
             border: 1px solid var(--border);
             border-radius: 8px;
@@ -260,7 +329,7 @@ function formatSpeed(int $bps): string {
         }
         .search-box input:focus { border-color: var(--primary); }
         select.filter-select {
-            padding: 9px 12px;
+            padding: 8px 10px;
             background: var(--dark-light);
             border: 1px solid var(--border);
             border-radius: 8px;
@@ -271,7 +340,7 @@ function formatSpeed(int $bps): string {
         }
         select.filter-select:focus { border-color: var(--primary); }
         .btn {
-            padding: 9px 16px;
+            padding: 8px 14px;
             border-radius: 8px;
             border: none;
             cursor: pointer;
@@ -280,7 +349,6 @@ function formatSpeed(int $bps): string {
             display: flex;
             align-items: center;
             gap: 6px;
-            text-decoration: none;
         }
         .btn-secondary {
             background: var(--dark-light);
@@ -289,7 +357,6 @@ function formatSpeed(int $bps): string {
         }
         .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
 
-        /* ── Table ── */
         .table-wrap {
             background: var(--dark-light);
             border-radius: 12px;
@@ -299,8 +366,8 @@ function formatSpeed(int $bps): string {
         table { width: 100%; border-collapse: collapse; }
         thead th {
             background: #0f1f3a;
-            padding: 12px 16px;
-            font-size: 12px;
+            padding: 11px 14px;
+            font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 1px;
             color: var(--text-light);
@@ -316,295 +383,355 @@ function formatSpeed(int $bps): string {
         tbody tr { border-bottom: 1px solid #1e2a3a; transition: background 0.15s; }
         tbody tr:last-child { border-bottom: none; }
         tbody tr:hover { background: #1a2a40; }
-        tbody td { padding: 11px 16px; font-size: 13px; }
+        tbody td { padding: 10px 14px; font-size: 13px; }
 
-        .badge {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }
+        .badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:700; letter-spacing:0.5px; }
         .badge-up   { background:#0d2b1a; color:#4ade80; border:1px solid #16a34a; }
         .badge-vlan { background:#0f1f3a; color:#93c5fd; border:1px solid #1d4ed8; }
         .speed-warn { color: var(--warning); font-weight: 700; }
         .speed-10   { color: var(--danger);  font-weight: 700; }
 
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--text-light);
-        }
-        .empty-state i  { font-size: 48px; color: var(--success); margin-bottom: 16px; display: block; }
-        .empty-state h2 { font-size: 20px; color: var(--success); margin-bottom: 8px; }
+        .empty-state { text-align:center; padding:60px 20px; color:var(--text-light); }
+        .empty-state i  { font-size:48px; color:var(--success); margin-bottom:16px; display:block; }
+        .empty-state h2 { font-size:20px; color:var(--success); margin-bottom:8px; }
+        .row-count { font-size:12px; color:var(--text-light); padding:8px 14px; border-top:1px solid var(--border); }
 
-        .row-count {
-            font-size: 12px;
+        /* Loading spinner for iframe */
+        .iframe-loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--dark);
+            flex-direction: column;
+            gap: 16px;
             color: var(--text-light);
-            padding: 8px 16px;
-            border-top: 1px solid var(--border);
+            font-size: 14px;
         }
-
-        .divider {
-            border: none;
-            border-top: 1px solid var(--border);
-            margin: 28px 0;
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         @media (max-width: 768px) {
             .stats-bar { grid-template-columns: repeat(2,1fr); }
-            .report-cards { grid-template-columns: 1fr; }
+            .panel-native { padding: 14px; }
         }
     </style>
 </head>
 <body>
-<div class="container">
 
-    <!-- Header -->
-    <div class="header">
-        <div class="header-icon"><i class="fas fa-chart-bar"></i></div>
-        <div>
-            <h1>Raporlar</h1>
-            <p>
-                Ağ analiz araçlarına hızlı erişim &amp; canlı raporlar.
-                &nbsp;·&nbsp; Son yenileme: <strong><?= date('d.m.Y H:i:s') ?></strong>
-            </p>
+<!-- ══════════════════════════════════════════════════════════
+     STICKY TOP NAVIGATION BAR
+═══════════════════════════════════════════════════════════ -->
+<nav class="top-nav" id="topNav">
+
+    <div class="nav-brand">
+        <i class="fas fa-chart-bar"></i>
+        <span>Raporlar</span>
+    </div>
+
+    <!-- Built-in Slow Ports -->
+    <button class="nav-btn active" id="btn-slowports" onclick="showNative(this)"
+            data-label="Yavaş Portlar">
+        <i class="fas fa-tachometer-alt" style="color:#f59e0b"></i>
+        Yavaş Portlar
+    </button>
+
+    <!-- Separator -->
+    <span style="color:var(--border);font-size:16px;margin:0 4px;flex-shrink:0">|</span>
+
+    <!-- Iframe reports -->
+    <button class="nav-btn" onclick="loadFrame(this,'vlan_alias_check.php')"
+            data-label="VLAN/Alias Uyumsuzluk">
+        <i class="fas fa-exclamation-triangle" style="color:#f59e0b"></i>
+        VLAN/Alias Uyumsuzluk
+    </button>
+    <button class="nav-btn" onclick="loadFrame(this,'matris.php')"
+            data-label="Alarm Matrisi">
+        <i class="fas fa-table" style="color:#8b5cf6"></i>
+        Alarm Matrisi
+    </button>
+    <button class="nav-btn" onclick="loadFrame(this,'port_alarms.php')"
+            data-label="Port Alarmları">
+        <i class="fas fa-bell" style="color:#ef4444"></i>
+        Port Alarmları
+    </button>
+    <button class="nav-btn" onclick="loadFrame(this,'admin_mac_history.php')"
+            data-label="MAC Değişim">
+        <i class="fas fa-history" style="color:#3b82f6"></i>
+        MAC Değişim
+    </button>
+    <button class="nav-btn" onclick="loadFrame(this,'device_import.php')"
+            data-label="Cihaz Envanteri">
+        <i class="fas fa-laptop" style="color:#10b981"></i>
+        Cihaz Envanteri
+    </button>
+    <button class="nav-btn" onclick="loadFrame(this,'mac_bulk_fix.php')"
+            data-label="MAC Toplu Düzeltme">
+        <i class="fas fa-tools" style="color:#3b82f6"></i>
+        MAC Toplu Düzeltme
+    </button>
+
+    <span style="color:var(--border);font-size:16px;margin:0 4px;flex-shrink:0">|</span>
+
+    <button class="nav-btn" onclick="loadFrame(this,'report_vlan_dist.php')"
+            data-label="VLAN Dağılımı">
+        <i class="fas fa-layer-group" style="color:#a78bfa"></i>
+        VLAN Dağılımı
+    </button>
+    <button class="nav-btn" onclick="loadFrame(this,'report_flapping.php')"
+            data-label="Up/Down Döngüsü">
+        <i class="fas fa-exchange-alt" style="color:#ef4444"></i>
+        Up/Down Döngüsü
+    </button>
+    <button class="nav-btn" onclick="loadFrame(this,'report_errors.php')"
+            data-label="Hata / Drop">
+        <i class="fas fa-bug" style="color:#f59e0b"></i>
+        Hata / Drop
+    </button>
+
+    <div class="nav-spacer"></div>
+
+    <button class="nav-refresh" id="btnRefresh" onclick="refreshCurrent()" title="Sayfayı yenile">
+        <i class="fas fa-sync-alt"></i> Yenile
+    </button>
+
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════
+     PANEL WRAPPER
+═══════════════════════════════════════════════════════════ -->
+<div class="panel-wrapper">
+
+    <!-- ── Native panel: 100 Mbps ve Altı ───────────────────── -->
+    <div class="panel-native active" id="panel-native">
+
+        <div class="breadcrumb">
+            <i class="fas fa-tachometer-alt"></i>
+            <strong>100 Mbps ve Altında Çalışan UP Portlar</strong>
+            <span style="margin-left:auto;color:var(--text-light)">
+                Son yenileme: <?= date('d.m.Y H:i:s') ?>
+            </span>
         </div>
-    </div>
 
-    <!-- ── Rapor Kartları ─────────────────────────────────────────── -->
-    <div class="section-title">
-        <i class="fas fa-th-large"></i> Rapor Sayfaları
-    </div>
-    <div class="report-cards">
-
-        <a class="report-card" href="vlan_alias_check.php" target="_blank">
-            <div class="card-icon" style="color:#f59e0b"><i class="fas fa-exclamation-triangle"></i></div>
-            <div class="card-title">VLAN / Alias Uyumsuzluk</div>
-            <div class="card-desc">Port alias'larının VLAN tipiyle çelişip çelişmediğini kontrol eder.</div>
-            <span class="card-badge badge-yellow"><i class="fas fa-external-link-alt"></i> Aç</span>
-        </a>
-
-        <a class="report-card" href="matris.php" target="_blank">
-            <div class="card-icon" style="color:#8b5cf6"><i class="fas fa-table"></i></div>
-            <div class="card-title">Alarm Matrisi</div>
-            <div class="card-desc">Sistemin tüm alarm türlerini, tetiklenme mantığını ve istatistiklerini gösterir.</div>
-            <span class="card-badge badge-purple"><i class="fas fa-external-link-alt"></i> Aç</span>
-        </a>
-
-        <a class="report-card" href="port_alarms.php" target="_blank">
-            <div class="card-icon" style="color:#ef4444"><i class="fas fa-bell"></i></div>
-            <div class="card-title">Port Alarmları</div>
-            <div class="card-desc">Aktif port alarmlarını, önem derecelerini ve onay durumlarını listeler.</div>
-            <span class="card-badge badge-red"><i class="fas fa-external-link-alt"></i> Aç</span>
-        </a>
-
-        <a class="report-card" href="admin_mac_history.php" target="_blank">
-            <div class="card-icon" style="color:#3b82f6"><i class="fas fa-history"></i></div>
-            <div class="card-title">MAC Değişim Geçmişi</div>
-            <div class="card-desc">Port bazlı MAC adres değişim kayıtlarını ve hareket geçmişini gösterir.</div>
-            <span class="card-badge badge-blue"><i class="fas fa-external-link-alt"></i> Aç</span>
-        </a>
-
-        <a class="report-card" href="device_import.php" target="_blank">
-            <div class="card-icon" style="color:#10b981"><i class="fas fa-laptop"></i></div>
-            <div class="card-title">Cihaz Envanteri</div>
-            <div class="card-desc">Ağdaki kayıtlı cihazlar, MAC adresleri ve kullanıcı bilgileri.</div>
-            <span class="card-badge badge-green"><i class="fas fa-external-link-alt"></i> Aç</span>
-        </a>
-
-        <a class="report-card" href="mac_bulk_fix.php" target="_blank">
-            <div class="card-icon" style="color:#3b82f6"><i class="fas fa-tools"></i></div>
-            <div class="card-title">MAC Toplu Düzeltme</div>
-            <div class="card-desc">Açık MAC uyuşmazlığı alarmlarını listeler ve toplu onaylamayı sağlar.</div>
-            <span class="card-badge badge-blue"><i class="fas fa-external-link-alt"></i> Aç</span>
-        </a>
-
-        <a class="report-card" href="report_vlan_dist.php" target="_blank">
-            <div class="card-icon" style="color:#a78bfa"><i class="fas fa-layer-group"></i></div>
-            <div class="card-title">VLAN Dağılımı</div>
-            <div class="card-desc">Her VLAN'daki UP / DOWN port sayılarını ve switch bazlı dökümü gösterir.</div>
-            <span class="card-badge badge-purple"><i class="fas fa-external-link-alt"></i> Aç</span>
-        </a>
-
-        <a class="report-card" href="report_flapping.php" target="_blank">
-            <div class="card-icon" style="color:#ef4444"><i class="fas fa-exchange-alt"></i></div>
-            <div class="card-title">Up/Down Döngüsü</div>
-            <div class="card-desc">Son 1 saat içinde 2+ kez durum değişikliği yaşayan (flapping) portları listeler.</div>
-            <span class="card-badge badge-red"><i class="fas fa-external-link-alt"></i> Aç</span>
-        </a>
-
-        <a class="report-card" href="report_errors.php" target="_blank">
-            <div class="card-icon" style="color:#f59e0b"><i class="fas fa-bug"></i></div>
-            <div class="card-title">Hata / Drop Raporu</div>
-            <div class="card-desc">Gelen/Giden Hata veya Drop (in_discards, out_discards) değeri sıfırdan büyük portlar.</div>
-            <span class="card-badge badge-yellow"><i class="fas fa-external-link-alt"></i> Aç</span>
-        </a>
-
-    </div>
-
-    <hr class="divider">
-
-    <!-- ── 100 Mbps ve Altı Portlar ──────────────────────────────── -->
-    <div class="section-title">
-        <i class="fas fa-tachometer-alt"></i> 100 Mbps ve Altında Çalışan UP Portlar
-    </div>
-
-    <!-- Stats -->
-    <div class="stats-bar">
-        <div class="stat-card warn" id="statSlowPorts">
-            <div class="num" id="statSlowPortsNum"><?= $portCnt ?></div>
-            <div class="label">Yavaş Port</div>
-        </div>
-        <div class="stat-card info">
-            <div class="num"><?= count($speedGroups) ?></div>
-            <div class="label">Farklı Hız</div>
-        </div>
-        <div class="stat-card info">
-            <div class="num"><?= count($switchGroups) ?></div>
-            <div class="label">Etkilenen Switch</div>
-        </div>
-        <?php
-        $cnt10 = count(array_filter($ports, fn($p) => $p['port_speed'] <= 10_000_000));
-        ?>
-        <div class="stat-card <?= $cnt10 > 0 ? 'danger' : 'info' ?>" id="statTenMbps">
-            <div class="num" id="statTenMbpsNum"><?= $cnt10 ?></div>
-            <div class="label">10 Mbps ve Altı</div>
-        </div>
-    </div>
-
-    <?php if (!empty($speedGroups)): ?>
-    <div class="chip-bar">
-        <span class="label"><i class="fas fa-bolt"></i>&nbsp; Hız Dağılımı</span>
-        <?php foreach ($speedGroups as $speed => $cnt): ?>
-            <span class="chip chip-speed"><?= htmlspecialchars($speed) ?> &nbsp;<strong><?= $cnt ?></strong></span>
-        <?php endforeach; ?>
-    </div>
-    <?php endif; ?>
-
-    <?php if (!empty($switchGroups)): ?>
-    <div class="chip-bar">
-        <span class="label"><i class="fas fa-server"></i>&nbsp; Switch</span>
-        <?php foreach ($switchGroups as $sw => $cnt): ?>
-            <span class="chip chip-switch"><?= htmlspecialchars($sw) ?> &nbsp;<strong><?= $cnt ?></strong></span>
-        <?php endforeach; ?>
-    </div>
-    <?php endif; ?>
-
-    <!-- Toolbar -->
-    <div class="toolbar">
-        <div class="search-box">
-            <i class="fas fa-search"></i>
-            <input type="text" id="searchInput" placeholder="Switch, port veya alias ara…" oninput="filterTable()">
-        </div>
-        <select class="filter-select" id="switchFilter" onchange="filterTable()">
-            <option value="">Tüm Switch'ler</option>
-            <?php foreach (array_keys($switchGroups) as $sw): ?>
-                <option value="<?= htmlspecialchars($sw) ?>"><?= htmlspecialchars($sw) ?></option>
-            <?php endforeach; ?>
-        </select>
-        <select class="filter-select" id="speedFilter" onchange="filterTable()">
-            <option value="">Tüm Hızlar</option>
-            <?php foreach (array_keys($speedGroups) as $speed): ?>
-                <option value="<?= htmlspecialchars($speed) ?>"><?= htmlspecialchars($speed) ?></option>
-            <?php endforeach; ?>
-        </select>
-        <select class="filter-select" id="vlanFilter" onchange="filterTable()">
-            <option value="50_70" selected>VLAN 50 + 70</option>
-            <option value="">Tüm VLAN'lar</option>
-            <?php foreach (array_keys($vlanList) as $vlanId): ?>
-                <option value="<?= $vlanId ?>"><?= $vlanId ?></option>
-            <?php endforeach; ?>
-        </select>
-        <button class="btn btn-secondary" onclick="location.reload()">
-            <i class="fas fa-sync-alt"></i> Yenile
-        </button>
-        <button class="btn btn-secondary" onclick="exportXLSX()">
-            <i class="fas fa-file-excel"></i> Excel
-        </button>
-    </div>
-
-    <!-- Table -->
-    <div class="table-wrap">
-        <?php if (empty($ports)): ?>
-            <div class="empty-state">
-                <i class="fas fa-check-circle"></i>
-                <h2>Yavaş Port Yok!</h2>
-                <p>Tüm UP portlar 100 Mbps'in üzerinde çalışıyor.</p>
+        <!-- Stats -->
+        <div class="stats-bar">
+            <div class="stat-card warn" id="statSlowPorts">
+                <div class="num" id="statSlowPortsNum"><?= $portCnt ?></div>
+                <div class="label">Yavaş Port</div>
             </div>
-        <?php else: ?>
-        <table id="speedTable">
-            <thead>
-                <tr>
-                    <th onclick="sortTable(0)">Switch Adı <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(1)">Port <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(2)">Hız <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(3)">VLAN <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(4)">Bağlantı <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(5)">Durum <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(6)">Son Güncelleme <span class="sort-icon fas fa-sort"></span></th>
-                </tr>
-            </thead>
-            <tbody id="tableBody">
-                <?php foreach ($ports as $row):
-                    $bps          = (int)$row['port_speed'];
-                    $speedStr     = formatSpeed($bps);
-                    $speedGroupKey = (int)round($bps / 1_000_000) . ' Mbps';
-                    $speedClass   = ($bps <= 10_000_000) ? 'speed-10' : 'speed-warn';
-                    $ts = !empty($row['poll_timestamp'])
-                        ? date('d.m.Y H:i', strtotime($row['poll_timestamp']))
-                        : '-';
-                    // Bağlantı: device_name (registry) > port_alias (generic değilse) > MAC > —
-                    $connDevice = trim($row['conn_device'] ?? '');
-                    $connIp     = trim($row['conn_ip']     ?? '');
-                    $alias      = trim($row['alias']       ?? '');
-                    $portMac    = trim($row['port_mac']    ?? '');
-                    // "DEVICE", "CIHAZ" gibi generic placeholder alias'ları atla
-                    $aliasIsGeneric = preg_match('/^(DEVICE|CIHAZ\s*\d*)$/i', $alias);
-                    $label = $connDevice !== '' ? $connDevice : (!$aliasIsGeneric && $alias !== '' ? $alias : $portMac);
-                    if ($label !== '' && $connIp !== '') {
-                        $connHtml = htmlspecialchars($label) . '<br><span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
-                    } elseif ($label !== '') {
-                        $connHtml = htmlspecialchars($label);
-                    } elseif ($connIp !== '') {
-                        $connHtml = '<span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
-                    } else {
-                        $connHtml = '<span style="color:#475569">—</span>';
-                    }
-                ?>
-                <tr data-switch="<?= htmlspecialchars($row['switch_name']) ?>"
-                    data-speed="<?= htmlspecialchars($speedGroupKey) ?>"
-                    data-vlan="<?= $row['vlan_id'] !== null ? (int)$row['vlan_id'] : '' ?>">
-                    <td><?= htmlspecialchars($row['switch_name'] ?? '-') ?></td>
-                    <td><?= (int)$row['port_number'] ?></td>
-                    <td><span class="<?= $speedClass ?>"><?= htmlspecialchars($speedStr) ?></span></td>
-                    <td><?= $row['vlan_id'] ? '<span class="badge badge-vlan">' . (int)$row['vlan_id'] . '</span>' : '-' ?></td>
-                    <td style="font-size:12px;line-height:1.4"><?= $connHtml ?></td>
-                    <td><span class="badge badge-up">UP</span></td>
-                    <td style="color:var(--text-light)"><?= $ts ?></td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
-        <div class="row-count" id="rowCount">
-            Toplam <strong><?= $portCnt ?></strong> yavaş port gösteriliyor.
+            <div class="stat-card info">
+                <div class="num"><?= count($speedGroups) ?></div>
+                <div class="label">Farklı Hız</div>
+            </div>
+            <div class="stat-card info">
+                <div class="num"><?= count($switchGroups) ?></div>
+                <div class="label">Etkilenen Switch</div>
+            </div>
+            <?php
+            $cnt10 = count(array_filter($ports, fn($p) => $p['port_speed'] <= 10_000_000));
+            ?>
+            <div class="stat-card <?= $cnt10 > 0 ? 'danger' : 'info' ?>" id="statTenMbps">
+                <div class="num" id="statTenMbpsNum"><?= $cnt10 ?></div>
+                <div class="label">10 Mbps ve Altı</div>
+            </div>
+        </div>
+
+        <?php if (!empty($speedGroups)): ?>
+        <div class="chip-bar">
+            <span class="label"><i class="fas fa-bolt"></i>&nbsp; Hız Dağılımı</span>
+            <?php foreach ($speedGroups as $speed => $cnt): ?>
+                <span class="chip chip-speed"><?= htmlspecialchars($speed) ?> &nbsp;<strong><?= $cnt ?></strong></span>
+            <?php endforeach; ?>
         </div>
         <?php endif; ?>
+
+        <?php if (!empty($switchGroups)): ?>
+        <div class="chip-bar">
+            <span class="label"><i class="fas fa-server"></i>&nbsp; Switch</span>
+            <?php foreach ($switchGroups as $sw => $cnt): ?>
+                <span class="chip chip-switch"><?= htmlspecialchars($sw) ?> &nbsp;<strong><?= $cnt ?></strong></span>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="Switch, port veya alias ara…" oninput="filterTable()">
+            </div>
+            <select class="filter-select" id="switchFilter" onchange="filterTable()">
+                <option value="">Tüm Switch'ler</option>
+                <?php foreach (array_keys($switchGroups) as $sw): ?>
+                    <option value="<?= htmlspecialchars($sw) ?>"><?= htmlspecialchars($sw) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <select class="filter-select" id="speedFilter" onchange="filterTable()">
+                <option value="">Tüm Hızlar</option>
+                <?php foreach (array_keys($speedGroups) as $speed): ?>
+                    <option value="<?= htmlspecialchars($speed) ?>"><?= htmlspecialchars($speed) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <select class="filter-select" id="vlanFilter" onchange="filterTable()">
+                <option value="50_70" selected>VLAN 50 + 70</option>
+                <option value="">Tüm VLAN'lar</option>
+                <?php foreach (array_keys($vlanList) as $vlanId): ?>
+                    <option value="<?= $vlanId ?>"><?= $vlanId ?></option>
+                <?php endforeach; ?>
+            </select>
+            <button class="btn btn-secondary" onclick="exportXLSX()">
+                <i class="fas fa-file-excel"></i> Excel
+            </button>
+        </div>
+
+        <!-- Table -->
+        <div class="table-wrap">
+            <?php if (empty($ports)): ?>
+                <div class="empty-state">
+                    <i class="fas fa-check-circle"></i>
+                    <h2>Yavaş Port Yok!</h2>
+                    <p>Tüm UP portlar 100 Mbps'in üzerinde çalışıyor.</p>
+                </div>
+            <?php else: ?>
+            <table id="speedTable">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable(0)">Switch Adı <span class="sort-icon fas fa-sort"></span></th>
+                        <th onclick="sortTable(1)">Port <span class="sort-icon fas fa-sort"></span></th>
+                        <th onclick="sortTable(2)">Hız <span class="sort-icon fas fa-sort"></span></th>
+                        <th onclick="sortTable(3)">VLAN <span class="sort-icon fas fa-sort"></span></th>
+                        <th onclick="sortTable(4)">Bağlantı <span class="sort-icon fas fa-sort"></span></th>
+                        <th onclick="sortTable(5)">Durum <span class="sort-icon fas fa-sort"></span></th>
+                        <th onclick="sortTable(6)">Son Güncelleme <span class="sort-icon fas fa-sort"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <?php foreach ($ports as $row):
+                        $bps           = (int)$row['port_speed'];
+                        $speedStr      = formatSpeed($bps);
+                        $speedGroupKey = (int)round($bps / 1_000_000) . ' Mbps';
+                        $speedClass    = ($bps <= 10_000_000) ? 'speed-10' : 'speed-warn';
+                        $ts = !empty($row['poll_timestamp'])
+                            ? date('d.m.Y H:i', strtotime($row['poll_timestamp']))
+                            : '-';
+                        $connDevice = trim($row['conn_device'] ?? '');
+                        $connIp     = trim($row['conn_ip']     ?? '');
+                        $alias      = trim($row['alias']       ?? '');
+                        $portMac    = trim($row['port_mac']    ?? '');
+                        $aliasIsGeneric = preg_match('/^(DEVICE|CIHAZ\s*\d*)$/i', $alias);
+                        $label = $connDevice !== '' ? $connDevice : (!$aliasIsGeneric && $alias !== '' ? $alias : $portMac);
+                        if ($label !== '' && $connIp !== '') {
+                            $connHtml = htmlspecialchars($label) . '<br><span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
+                        } elseif ($label !== '') {
+                            $connHtml = htmlspecialchars($label);
+                        } elseif ($connIp !== '') {
+                            $connHtml = '<span style="color:var(--text-light);font-size:11px">' . htmlspecialchars($connIp) . '</span>';
+                        } else {
+                            $connHtml = '<span style="color:#475569">—</span>';
+                        }
+                    ?>
+                    <tr data-switch="<?= htmlspecialchars($row['switch_name']) ?>"
+                        data-speed="<?= htmlspecialchars($speedGroupKey) ?>"
+                        data-vlan="<?= $row['vlan_id'] !== null ? (int)$row['vlan_id'] : '' ?>">
+                        <td><?= htmlspecialchars($row['switch_name'] ?? '-') ?></td>
+                        <td><?= (int)$row['port_number'] ?></td>
+                        <td><span class="<?= $speedClass ?>"><?= htmlspecialchars($speedStr) ?></span></td>
+                        <td><?= $row['vlan_id'] ? '<span class="badge badge-vlan">' . (int)$row['vlan_id'] . '</span>' : '-' ?></td>
+                        <td style="font-size:12px;line-height:1.4"><?= $connHtml ?></td>
+                        <td><span class="badge badge-up">UP</span></td>
+                        <td style="color:var(--text-light)"><?= $ts ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <div class="row-count" id="rowCount">
+                Toplam <strong><?= $portCnt ?></strong> yavaş port gösteriliyor.
+            </div>
+            <?php endif; ?>
+        </div>
+
+    </div><!-- /panel-native -->
+
+    <!-- ── Iframe panel ──────────────────────────────────────── -->
+    <div class="panel-iframe" id="panel-iframe">
+        <div class="iframe-loading" id="iframeLoading">
+            <div class="spinner"></div>
+            <span>Yükleniyor…</span>
+        </div>
+        <iframe id="reportFrame" src="about:blank" onload="onFrameLoad()"></iframe>
     </div>
 
-</div><!-- /container -->
+</div><!-- /panel-wrapper -->
 
 <script>
-// ── Filter ──────────────────────────────────────────────────────────────────
+// ── Panel switching ──────────────────────────────────────────────────────────
+let currentFrameUrl = '';
+
+function setActiveBtn(btn) {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+function showNative(btn) {
+    setActiveBtn(btn);
+    document.getElementById('panel-native').classList.add('active');
+    document.getElementById('panel-iframe').classList.remove('active');
+}
+
+function loadFrame(btn, url) {
+    setActiveBtn(btn);
+    document.getElementById('panel-native').classList.remove('active');
+
+    const panel  = document.getElementById('panel-iframe');
+    const frame  = document.getElementById('reportFrame');
+    const loading = document.getElementById('iframeLoading');
+
+    panel.classList.add('active');
+
+    // show spinner
+    loading.style.display = 'flex';
+    frame.style.opacity = '0';
+
+    currentFrameUrl = url;
+    frame.src = url;
+}
+
+function onFrameLoad() {
+    const loading = document.getElementById('iframeLoading');
+    const frame   = document.getElementById('reportFrame');
+    loading.style.display = 'none';
+    frame.style.opacity = '1';
+    frame.style.transition = 'opacity 0.2s';
+}
+
+function refreshCurrent() {
+    const nativeActive = document.getElementById('panel-native').classList.contains('active');
+    if (nativeActive) {
+        location.reload();
+    } else {
+        const frame = document.getElementById('reportFrame');
+        const loading = document.getElementById('iframeLoading');
+        loading.style.display = 'flex';
+        frame.style.opacity = '0';
+        frame.src = frame.src;  // reload iframe
+    }
+}
+
+// ── Filter ───────────────────────────────────────────────────────────────────
 function filterTable() {
     const q          = document.getElementById('searchInput').value.toLowerCase();
     const swFilter   = document.getElementById('switchFilter').value;
     const spFilter   = document.getElementById('speedFilter').value;
     const vlanFilter = document.getElementById('vlanFilter').value;
     const rows       = document.querySelectorAll('#tableBody tr');
-    let visible = 0;
-    let visible10 = 0;
+    let visible = 0, visible10 = 0;
 
     rows.forEach(tr => {
         const text      = tr.textContent.toLowerCase();
@@ -612,10 +739,10 @@ function filterTable() {
         const rowSpeed  = tr.dataset.speed  || '';
         const rowVlan   = tr.dataset.vlan   || '';
 
-        const matchQ    = !q          || text.includes(q);
-        const matchSw   = !swFilter   || rowSwitch === swFilter;
-        const matchSp   = !spFilter   || rowSpeed  === spFilter;
-        let   matchVlan = true;
+        const matchQ  = !q        || text.includes(q);
+        const matchSw = !swFilter || rowSwitch === swFilter;
+        const matchSp = !spFilter || rowSpeed  === spFilter;
+        let matchVlan = true;
         if (vlanFilter === '50_70') {
             matchVlan = rowVlan === '50' || rowVlan === '70';
         } else if (vlanFilter !== '') {
@@ -626,7 +753,6 @@ function filterTable() {
         tr.style.display = show ? '' : 'none';
         if (show) {
             visible++;
-            // check if this row is 10 Mbps or less via data-speed
             const spd = rowSpeed.replace(' Mbps','');
             if (!isNaN(spd) && parseInt(spd) <= 10) visible10++;
         }
@@ -635,9 +761,8 @@ function filterTable() {
     const rc = document.getElementById('rowCount');
     if (rc) rc.innerHTML = `<strong>${visible}</strong> kayıt gösteriliyor.`;
 
-    // Update stat cards
-    const slowNum = document.getElementById('statSlowPortsNum');
-    const tenNum  = document.getElementById('statTenMbpsNum');
+    const slowNum  = document.getElementById('statSlowPortsNum');
+    const tenNum   = document.getElementById('statTenMbpsNum');
     const slowCard = document.getElementById('statSlowPorts');
     if (slowNum) slowNum.textContent = visible;
     if (slowCard) {
@@ -647,12 +772,11 @@ function filterTable() {
     if (tenNum) tenNum.textContent = visible10;
 }
 
-// Apply default VLAN 50+70 filter on load
 document.addEventListener('DOMContentLoaded', function() {
     filterTable();
 });
 
-// ── Sort ────────────────────────────────────────────────────────────────────
+// ── Sort ─────────────────────────────────────────────────────────────────────
 let sortState = { col: -1, asc: true };
 function sortTable(col) {
     const tbody = document.getElementById('tableBody');
@@ -664,10 +788,8 @@ function sortTable(col) {
     rows.sort((a, b) => {
         const va = a.querySelectorAll('td')[col]?.textContent.trim() ?? '';
         const vb = b.querySelectorAll('td')[col]?.textContent.trim() ?? '';
-        // Hız sütunu için sayısal sıralama (bps parse)
         if (col === 2) {
-            const pa = parseSpeed(va), pb = parseSpeed(vb);
-            return asc ? pa - pb : pb - pa;
+            return asc ? parseSpeed(va) - parseSpeed(vb) : parseSpeed(vb) - parseSpeed(va);
         }
         const na = parseFloat(va), nb = parseFloat(vb);
         const cmp = (!isNaN(na) && !isNaN(nb)) ? na - nb : va.localeCompare(vb, 'tr');
@@ -678,10 +800,7 @@ function sortTable(col) {
     document.querySelectorAll('thead th').forEach((th, i) => {
         th.classList.toggle('sorted', i === col);
         const icon = th.querySelector('.sort-icon');
-        if (icon) {
-            icon.className = 'sort-icon fas ' +
-                (i !== col ? 'fa-sort' : asc ? 'fa-sort-up' : 'fa-sort-down');
-        }
+        if (icon) icon.className = 'sort-icon fas ' + (i !== col ? 'fa-sort' : asc ? 'fa-sort-up' : 'fa-sort-down');
     });
 }
 
@@ -697,7 +816,7 @@ function parseSpeed(str) {
     }
 }
 
-// ── Excel Export (SheetJS) ──────────────────────────────────────────────────
+// ── Excel Export ─────────────────────────────────────────────────────────────
 function exportXLSX() {
     const headers = ['Switch Adı','Port','Hız','VLAN','Bağlantı','Durum','Son Güncelleme'];
     const rows    = Array.from(document.querySelectorAll('#tableBody tr'))
