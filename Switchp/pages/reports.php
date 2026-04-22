@@ -357,6 +357,9 @@ function formatSpeed(int $bps): string {
         }
         .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
         .btn-secondary.active { border-color: var(--warning); color: var(--warning); background: rgba(245,158,11,0.08); }
+        .btn-secondary:disabled { opacity:.45; cursor:not-allowed; }
+        .btn-hide-row { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #ef4444; color:#ef4444; background:transparent; cursor:pointer; white-space:nowrap; }
+        .btn-hide-row:hover { background:rgba(239,68,68,0.12); }
 
         .table-wrap {
             background: var(--dark-light);
@@ -587,8 +590,8 @@ function formatSpeed(int $bps): string {
                     <option value="<?= $vlanId ?>"><?= $vlanId ?></option>
                 <?php endforeach; ?>
             </select>
-            <button class="btn btn-secondary" id="btn100Toggle" onclick="toggle100()" title="100 Mbps portları gizle / göster">
-                <i class="fas fa-eye-slash"></i> <span id="btn100Label">100 Mbps Gizle</span>
+            <button class="btn btn-secondary" id="btn100Toggle" onclick="showAllHidden()" disabled title="Gizlenen satırları tekrar göster">
+                <i class="fas fa-eye"></i> <span id="btn100Label">Gizlileri Göster (0)</span>
             </button>
             <button class="btn btn-secondary" onclick="exportXLSX()">
                 <i class="fas fa-file-excel"></i> Excel
@@ -614,6 +617,7 @@ function formatSpeed(int $bps): string {
                         <th onclick="sortTable(4)">Bağlantı <span class="sort-icon fas fa-sort"></span></th>
                         <th onclick="sortTable(5)">Durum <span class="sort-icon fas fa-sort"></span></th>
                         <th onclick="sortTable(6)">Son Güncelleme <span class="sort-icon fas fa-sort"></span></th>
+                        <th style="width:70px"></th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
@@ -641,9 +645,13 @@ function formatSpeed(int $bps): string {
                             $connHtml = '<span style="color:#475569">—</span>';
                         }
                     ?>
+                    <?php
+                        $rowKey = htmlspecialchars($row['switch_name'] . ':' . (int)$row['port_number']);
+                    ?>
                     <tr data-switch="<?= htmlspecialchars($row['switch_name']) ?>"
                         data-speed="<?= htmlspecialchars($speedGroupKey) ?>"
-                        data-vlan="<?= $row['vlan_id'] !== null ? (int)$row['vlan_id'] : '' ?>">
+                        data-vlan="<?= $row['vlan_id'] !== null ? (int)$row['vlan_id'] : '' ?>"
+                        data-rowkey="<?= $rowKey ?>">
                         <td><?= htmlspecialchars($row['switch_name'] ?? '-') ?></td>
                         <td><?= (int)$row['port_number'] ?></td>
                         <td><span class="<?= $speedClass ?>"><?= htmlspecialchars($speedStr) ?></span></td>
@@ -651,6 +659,7 @@ function formatSpeed(int $bps): string {
                         <td style="font-size:12px;line-height:1.4"><?= $connHtml ?></td>
                         <td><span class="badge badge-up">UP</span></td>
                         <td style="color:var(--text-light)"><?= $ts ?></td>
+                        <td style="text-align:center"><button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -728,24 +737,39 @@ function refreshCurrent() {
     }
 }
 
-// ── 100 Mbps toggle ──────────────────────────────────────────────────────────
-let hide100 = false;   // default: show all (100 Mbps rows visible)
+// ── Per-row hide (localStorage) ──────────────────────────────────────────────
+const LS_KEY = 'reports_hidden_rows';
+let hiddenRows = new Set(JSON.parse(localStorage.getItem(LS_KEY) || '[]'));
 
-function toggle100() {
-    hide100 = !hide100;
+function saveHidden() {
+    localStorage.setItem(LS_KEY, JSON.stringify([...hiddenRows]));
+}
+
+function hideRow(key) {
+    hiddenRows.add(key);
+    saveHidden();
+    updateHideBtn();
+    filterTable();
+}
+
+function showAllHidden() {
+    hiddenRows.clear();
+    saveHidden();
+    updateHideBtn();
+    filterTable();
+}
+
+function updateHideBtn() {
     const btn   = document.getElementById('btn100Toggle');
     const label = document.getElementById('btn100Label');
-    const icon  = btn.querySelector('i');
-    if (hide100) {
-        label.textContent = '100 Mbps Göster';
-        icon.className    = 'fas fa-eye';
+    const n     = hiddenRows.size;
+    label.textContent = 'Gizlileri Göster (' + n + ')';
+    btn.disabled      = n === 0;
+    if (n > 0) {
         btn.classList.add('active');
     } else {
-        label.textContent = '100 Mbps Gizle';
-        icon.className    = 'fas fa-eye-slash';
         btn.classList.remove('active');
     }
-    filterTable();
 }
 
 // ── Filter ───────────────────────────────────────────────────────────────────
@@ -772,11 +796,11 @@ function filterTable() {
         } else if (vlanFilter !== '') {
             matchVlan = rowVlan === vlanFilter;
         }
-        // hide exactly-100 Mbps rows when toggle is on
-        const is100   = rowSpeed === '100 Mbps';
-        const match100 = !(hide100 && is100);
+        // hide individually hidden rows
+        const rowKey   = tr.dataset.rowkey || '';
+        const matchHide = !hiddenRows.has(rowKey);
 
-        const show = matchQ && matchSw && matchSp && matchVlan && match100;
+        const show = matchQ && matchSw && matchSp && matchVlan && matchHide;
         tr.style.display = show ? '' : 'none';
         if (show) {
             visible++;
@@ -800,6 +824,7 @@ function filterTable() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    updateHideBtn();
     filterTable();
 });
 
