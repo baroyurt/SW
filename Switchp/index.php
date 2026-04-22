@@ -10760,28 +10760,18 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
                 
                 console.log('Received navigateToPort message:', switchName, portNumber);
                 
-                // Navigate to switches page first
-                updatePageContent('switches');
+                // Navigate to switches page (shows page + updates nav)
+                switchPage('switches');
                 
-                // Wait for switches page to load, then find and open the switch
+                // Wait for switches page to render, then find and open the switch
                 setTimeout(() => {
                     const switchToOpen = switches.find(s => s.name === switchName);
                     if (switchToOpen) {
-                        console.log('Opening switch:', switchToOpen);
-                        showSwitchDetail(switchToOpen);
-                        
-                        // Highlight the specific port after a small delay
-                        setTimeout(() => {
-                            const portElement = document.querySelector(`#detail-ports-grid .port-item[data-port="${portNumber}"]`);
-                            if (portElement) {
-                                portElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                portElement.style.animation = 'pulse 2s ease-in-out 3';
-                            }
-                        }, 500);
+                        showSwitchDetail(switchToOpen, portNumber);
                     } else {
                         showToast('Switch bulunamadı: ' + switchName, 'error');
                     }
-                }, 1000);
+                }, 300);
             }
         });
     </script>

@@ -628,11 +628,11 @@ function formatSpeed(int $bps): string {
 
     <!-- ── Iframe panel ──────────────────────────────────────── -->
     <div class="panel-iframe" id="panel-iframe">
-        <div class="iframe-loading" id="iframeLoading">
+        <div class="iframe-loading" id="iframeLoading" style="display:none">
             <div class="spinner"></div>
             <span>Yükleniyor…</span>
         </div>
-        <iframe id="reportFrame" src="about:blank" onload="onFrameLoad()"></iframe>
+        <iframe id="reportFrame" onload="if(typeof onFrameLoad==='function')onFrameLoad()"></iframe>
     </div>
 
 </div><!-- /panel-wrapper -->
