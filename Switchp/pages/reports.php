@@ -356,6 +356,7 @@ function formatSpeed(int $bps): string {
             color: var(--text);
         }
         .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
+        .btn-secondary.active { border-color: var(--warning); color: var(--warning); background: rgba(245,158,11,0.08); }
 
         .table-wrap {
             background: var(--dark-light);
@@ -586,6 +587,9 @@ function formatSpeed(int $bps): string {
                     <option value="<?= $vlanId ?>"><?= $vlanId ?></option>
                 <?php endforeach; ?>
             </select>
+            <button class="btn btn-secondary" id="btn100Toggle" onclick="toggle100()" title="100 Mbps portları gizle / göster">
+                <i class="fas fa-eye-slash"></i> <span id="btn100Label">100 Mbps Gizle</span>
+            </button>
             <button class="btn btn-secondary" onclick="exportXLSX()">
                 <i class="fas fa-file-excel"></i> Excel
             </button>
@@ -724,6 +728,26 @@ function refreshCurrent() {
     }
 }
 
+// ── 100 Mbps toggle ──────────────────────────────────────────────────────────
+let hide100 = true;   // default: hide exactly-100 Mbps rows
+
+function toggle100() {
+    hide100 = !hide100;
+    const btn   = document.getElementById('btn100Toggle');
+    const label = document.getElementById('btn100Label');
+    const icon  = btn.querySelector('i');
+    if (hide100) {
+        label.textContent = '100 Mbps Gizle';
+        icon.className    = 'fas fa-eye-slash';
+        btn.classList.remove('active');
+    } else {
+        label.textContent = '100 Mbps Göster';
+        icon.className    = 'fas fa-eye';
+        btn.classList.add('active');
+    }
+    filterTable();
+}
+
 // ── Filter ───────────────────────────────────────────────────────────────────
 function filterTable() {
     const q          = document.getElementById('searchInput').value.toLowerCase();
@@ -748,8 +772,11 @@ function filterTable() {
         } else if (vlanFilter !== '') {
             matchVlan = rowVlan === vlanFilter;
         }
+        // hide exactly-100 Mbps rows when toggle is on
+        const is100   = rowSpeed === '100 Mbps';
+        const match100 = !(hide100 && is100);
 
-        const show = matchQ && matchSw && matchSp && matchVlan;
+        const show = matchQ && matchSw && matchSp && matchVlan && match100;
         tr.style.display = show ? '' : 'none';
         if (show) {
             visible++;
