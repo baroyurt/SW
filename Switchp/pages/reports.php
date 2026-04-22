@@ -729,7 +729,7 @@ function refreshCurrent() {
 }
 
 // ── 100 Mbps toggle ──────────────────────────────────────────────────────────
-let hide100 = true;   // default: hide exactly-100 Mbps rows
+let hide100 = false;   // default: show all (100 Mbps rows visible)
 
 function toggle100() {
     hide100 = !hide100;
@@ -737,13 +737,13 @@ function toggle100() {
     const label = document.getElementById('btn100Label');
     const icon  = btn.querySelector('i');
     if (hide100) {
-        label.textContent = '100 Mbps Gizle';
-        icon.className    = 'fas fa-eye-slash';
-        btn.classList.remove('active');
-    } else {
         label.textContent = '100 Mbps Göster';
         icon.className    = 'fas fa-eye';
         btn.classList.add('active');
+    } else {
+        label.textContent = '100 Mbps Gizle';
+        icon.className    = 'fas fa-eye-slash';
+        btn.classList.remove('active');
     }
     filterTable();
 }
