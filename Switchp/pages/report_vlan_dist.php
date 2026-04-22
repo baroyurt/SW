@@ -114,14 +114,13 @@ foreach ($swRows as $r) {
     .row-count { font-size:12px; color:var(--text-light); padding:8px 18px; border-top:1px solid var(--border); }
 
     /* Switch breakdown table */
-    .table-wrap { background:var(--dark-light); border-radius:12px; border:1px solid var(--border); overflow:hidden; margin-top:24px; }
-    table { width:100%; border-collapse:collapse; table-layout:fixed; }
-    thead th { background:#0f1f3a; padding:8px 6px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-light); text-align:center; border-bottom:1px solid var(--border); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    thead th:first-child { text-align:left; padding-left:14px; min-width:130px; width:130px; }
-    thead th:not(:first-child) { min-width:52px; width:52px; }
+    .table-wrap { background:var(--dark-light); border-radius:12px; border:1px solid var(--border); overflow-x:auto; margin-top:24px; }
+    table { width:100%; border-collapse:collapse; }
+    thead th { background:#0f1f3a; padding:8px 6px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-light); text-align:center; border-bottom:1px solid var(--border); white-space:nowrap; }
+    thead th:first-child { text-align:left; padding-left:14px; min-width:150px; }
+    thead th:not(:first-child) { min-width:48px; }
     /* Rotate VLAN column headers to save horizontal space */
-    thead th.vlan-col { padding:40px 2px 6px; position:relative; vertical-align:bottom; }
-    thead th.vlan-col span { position:absolute; bottom:6px; left:50%; transform:translateX(-50%) rotate(-60deg); transform-origin:bottom center; white-space:nowrap; font-size:10px; }
+    thead th.vlan-col { padding:8px 6px; vertical-align:middle; }
     tbody tr { border-bottom:1px solid #1e2a3a; }
     tbody tr:last-child { border-bottom:none; }
     tbody tr:hover { background:#1a2a40; }

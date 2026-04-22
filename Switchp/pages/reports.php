@@ -463,11 +463,6 @@ function formatSpeed(int $bps): string {
         <i class="fas fa-table" style="color:#8b5cf6"></i>
         Alarm Matrisi
     </button>
-    <button class="nav-btn" onclick="loadFrame(this,'port_alarms.php')"
-            data-label="Port Alarmları">
-        <i class="fas fa-bell" style="color:#ef4444"></i>
-        Port Alarmları
-    </button>
     <button class="nav-btn" onclick="loadFrame(this,'admin_mac_history.php')"
             data-label="MAC Değişim">
         <i class="fas fa-history" style="color:#3b82f6"></i>
@@ -477,11 +472,6 @@ function formatSpeed(int $bps): string {
             data-label="Cihaz Envanteri">
         <i class="fas fa-laptop" style="color:#10b981"></i>
         Cihaz Envanteri
-    </button>
-    <button class="nav-btn" onclick="loadFrame(this,'mac_bulk_fix.php')"
-            data-label="MAC Toplu Düzeltme">
-        <i class="fas fa-tools" style="color:#3b82f6"></i>
-        MAC Toplu Düzeltme
     </button>
 
     <span style="color:var(--border);font-size:16px;margin:0 4px;flex-shrink:0">|</span>
@@ -621,7 +611,7 @@ function formatSpeed(int $bps): string {
                         <td><span class="badge badge-up">UP</span></td>
                         <td style="color:var(--text-light)"><?= $ts ?></td>
                         <td style="text-align:right;white-space:nowrap;padding-right:12px">
-                            <a class="btn-goto-port" href="../index.php?switch=<?= urlencode($row['switch_name']) ?>&port=<?= (int)$row['port_number'] ?>" target="_parent" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</a>
+                            <button class="btn-goto-port" onclick="window.parent.postMessage({action:'navigateToPort',switchName:<?= json_encode($row['switch_name']) ?>,portNumber:<?= (int)$row['port_number'] ?>},'*')" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
                             <button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
                         </td>
                     </tr>

@@ -1827,10 +1827,6 @@ header("Expires: 0");
                 <span>Port Değişiklik Alarmları</span>
                 <span id="alarm-badge" class="alarm-badge" style="display: none;">0</span>
             </button>
-            <button class="nav-item" data-page="device-import">
-                <i class="fas fa-file-import"></i>
-                <span>Device Import</span>
-            </button>
         </div>
         
         <div class="nav-section">
