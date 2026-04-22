@@ -966,12 +966,7 @@ function exportXLSX() {
 
 // ── Inline Port Detail ────────────────────────────────────────────────────────
 function gotoPortInline(switchName, portNumber) {
-    // When embedded inside parent iframe – delegate to parent
-    if (window.parent !== window) {
-        window.parent.postMessage({ action: 'navigateToPort', switchName, portNumber }, '*');
-        return;
-    }
-    // Standalone: show inline panel
+    // Always show inline panel – never navigate away from the reports page
     const url = `../index.php?switch=${encodeURIComponent(switchName)}&port=${portNumber}`;
     const panel   = document.getElementById('port-inline-panel');
     const frame   = document.getElementById('portInlineFrame');
