@@ -432,8 +432,8 @@ function formatSpeed(int $bps): string {
 
     <!-- Stats -->
     <div class="stats-bar">
-        <div class="stat-card <?= $portCnt > 0 ? 'warn' : 'info' ?>">
-            <div class="num"><?= $portCnt ?></div>
+        <div class="stat-card warn" id="statSlowPorts">
+            <div class="num" id="statSlowPortsNum"><?= $portCnt ?></div>
             <div class="label">Yavaş Port</div>
         </div>
         <div class="stat-card info">
@@ -447,8 +447,8 @@ function formatSpeed(int $bps): string {
         <?php
         $cnt10 = count(array_filter($ports, fn($p) => $p['port_speed'] <= 10_000_000));
         ?>
-        <div class="stat-card <?= $cnt10 > 0 ? 'danger' : 'info' ?>">
-            <div class="num"><?= $cnt10 ?></div>
+        <div class="stat-card <?= $cnt10 > 0 ? 'danger' : 'info' ?>" id="statTenMbps">
+            <div class="num" id="statTenMbpsNum"><?= $cnt10 ?></div>
             <div class="label">10 Mbps ve Altı</div>
         </div>
     </div>
@@ -490,6 +490,7 @@ function formatSpeed(int $bps): string {
             <?php endforeach; ?>
         </select>
         <select class="filter-select" id="vlanFilter" onchange="filterTable()">
+            <option value="50_70" selected>VLAN 50 + 70</option>
             <option value="">Tüm VLAN'lar</option>
             <?php foreach (array_keys($vlanList) as $vlanId): ?>
                 <option value="<?= $vlanId ?>"><?= $vlanId ?></option>
@@ -582,6 +583,7 @@ function filterTable() {
     const vlanFilter = document.getElementById('vlanFilter').value;
     const rows       = document.querySelectorAll('#tableBody tr');
     let visible = 0;
+    let visible10 = 0;
 
     rows.forEach(tr => {
         const text      = tr.textContent.toLowerCase();
@@ -592,16 +594,42 @@ function filterTable() {
         const matchQ    = !q          || text.includes(q);
         const matchSw   = !swFilter   || rowSwitch === swFilter;
         const matchSp   = !spFilter   || rowSpeed  === spFilter;
-        const matchVlan = !vlanFilter || rowVlan   === vlanFilter;
+        let   matchVlan = true;
+        if (vlanFilter === '50_70') {
+            matchVlan = rowVlan === '50' || rowVlan === '70';
+        } else if (vlanFilter !== '') {
+            matchVlan = rowVlan === vlanFilter;
+        }
 
         const show = matchQ && matchSw && matchSp && matchVlan;
         tr.style.display = show ? '' : 'none';
-        if (show) visible++;
+        if (show) {
+            visible++;
+            // check if this row is 10 Mbps or less via data-speed
+            const spd = rowSpeed.replace(' Mbps','');
+            if (!isNaN(spd) && parseInt(spd) <= 10) visible10++;
+        }
     });
 
     const rc = document.getElementById('rowCount');
     if (rc) rc.innerHTML = `<strong>${visible}</strong> kayıt gösteriliyor.`;
+
+    // Update stat cards
+    const slowNum = document.getElementById('statSlowPortsNum');
+    const tenNum  = document.getElementById('statTenMbpsNum');
+    const slowCard = document.getElementById('statSlowPorts');
+    if (slowNum) slowNum.textContent = visible;
+    if (slowCard) {
+        slowCard.classList.toggle('warn', visible > 0);
+        slowCard.classList.toggle('info', visible === 0);
+    }
+    if (tenNum) tenNum.textContent = visible10;
 }
+
+// Apply default VLAN 50+70 filter on load
+document.addEventListener('DOMContentLoaded', function() {
+    filterTable();
+});
 
 // ── Sort ────────────────────────────────────────────────────────────────────
 let sortState = { col: -1, asc: true };

@@ -1835,7 +1835,7 @@ header("Expires: 0");
         
         <div class="nav-section">
             <div class="nav-title">Raporlar</div>
-            <button class="nav-item" onclick="window.open('pages/reports.php', '_blank')" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);">
+            <button class="nav-item" data-page="reports" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);">
                 <i class="fas fa-chart-bar"></i>
                 <span>Raporlar</span>
             </button>
@@ -2105,6 +2105,16 @@ header("Expires: 0");
                     style="width: 100%; height: calc(100vh - 150px); border: none; border-radius: 15px; background: var(--dark);"
                     onload="this.style.display='block'"
                     onerror="this.innerHTML='<div style=padding:20px;text-align:center;color:red;>Error loading device import page</div>'">
+            </iframe>
+        </div>
+
+        <!-- Reports Page -->
+        <div class="page-content" id="page-reports">
+            <!-- Reports Component (same-origin trusted PHP file, no sandbox needed) -->
+            <iframe src="pages/reports.php" 
+                    style="width: 100%; height: calc(100vh - 60px); border: none; border-radius: 15px; background: var(--dark);"
+                    onload="this.style.display='block'"
+                    onerror="this.innerHTML='<div style=padding:20px;text-align:center;color:red;>Error loading reports page</div>'">
             </iframe>
         </div>
     </div>
@@ -7204,6 +7214,9 @@ else if (panelType === 'fiber') {
                     // Device import page is loaded via iframe
                     // Note: iframe includes sandbox attribute for security
                     // and error handling for loading failures
+                    break;
+                case 'reports':
+                    // Reports page is loaded via iframe
                     break;
             }
         }
