@@ -421,6 +421,27 @@ function formatSpeed(int $bps): string {
             <span class="card-badge badge-blue"><i class="fas fa-external-link-alt"></i> Aç</span>
         </a>
 
+        <a class="report-card" href="report_vlan_dist.php" target="_blank">
+            <div class="card-icon" style="color:#a78bfa"><i class="fas fa-layer-group"></i></div>
+            <div class="card-title">VLAN Dağılımı</div>
+            <div class="card-desc">Her VLAN'daki UP / DOWN port sayılarını ve switch bazlı dökümü gösterir.</div>
+            <span class="card-badge badge-purple"><i class="fas fa-external-link-alt"></i> Aç</span>
+        </a>
+
+        <a class="report-card" href="report_flapping.php" target="_blank">
+            <div class="card-icon" style="color:#ef4444"><i class="fas fa-exchange-alt"></i></div>
+            <div class="card-title">Up/Down Döngüsü</div>
+            <div class="card-desc">Son 1 saat içinde 2+ kez durum değişikliği yaşayan (flapping) portları listeler.</div>
+            <span class="card-badge badge-red"><i class="fas fa-external-link-alt"></i> Aç</span>
+        </a>
+
+        <a class="report-card" href="report_errors.php" target="_blank">
+            <div class="card-icon" style="color:#f59e0b"><i class="fas fa-bug"></i></div>
+            <div class="card-title">Hata / Drop Raporu</div>
+            <div class="card-desc">Gelen/Giden Hata veya Drop (in_discards, out_discards) değeri sıfırdan büyük portlar.</div>
+            <span class="card-badge badge-yellow"><i class="fas fa-external-link-alt"></i> Aç</span>
+        </a>
+
     </div>
 
     <hr class="divider">
