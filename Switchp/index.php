@@ -818,11 +818,20 @@ header("Expires: 0");
             left: 0;
             right: 0;
             bottom: 0;
-            z-index: 900;
+            z-index: 950;
             margin: 0;
             border-radius: 0;
             overflow-y: auto;
             padding: 30px;
+            /* fully opaque so sidebar is hidden */
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        }
+        .detail-panel.from-reports .btn-close-overlay {
+            display: inline-flex !important;
+        }
+        /* Hidden by default; shown only in from-reports mode */
+        .btn-close-overlay {
+            display: none !important;
         }
         
         .detail-header {
@@ -2002,6 +2011,12 @@ header("Expires: 0");
                     </div>
                 </div>
                 <div style="display: flex; gap: 10px;">
+                    <a id="detail-fullpage-link" class="btn btn-secondary btn-close-overlay" href="#" target="_blank" style="text-decoration:none;">
+                        <i class="fas fa-external-link-alt"></i> Tam Sayfada Aç
+                    </a>
+                    <button class="btn btn-secondary btn-close-overlay" onclick="hideDetailPanel()">
+                        <i class="fas fa-times"></i> Kapat
+                    </button>
                     <button class="btn btn-secondary" onclick="window.open('pages/admin.php', '_blank')">
                         <i class="fas fa-cogs"></i> Yönetim Paneli
                     </button>
@@ -10741,6 +10756,8 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
         function handleURLParameters() {
             const urlParams = new URLSearchParams(window.location.search);
             const switchId = urlParams.get('switch_id');
+            const switchName = urlParams.get('switch');
+            const portNumber = urlParams.get('port') || urlParams.get('highlight_port');
             
             if (switchId) {
                 // Find the switch by ID
@@ -10752,6 +10769,21 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
                     }, 500); // Small delay to ensure data is loaded
                 } else {
                     showToast('Switch bulunamadı: ID ' + switchId, 'error');
+                }
+                
+                // Clean URL without reloading page
+                const cleanUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, cleanUrl);
+            } else if (switchName) {
+                // Navigate to switch detail by name (used by reports "Porta Git")
+                const sw = switches.find(s => s.name === switchName);
+                if (sw) {
+                    switchPage('switches');
+                    setTimeout(() => {
+                        showSwitchDetail(sw, portNumber ? parseInt(portNumber) : null);
+                    }, 300);
+                } else {
+                    showToast('Switch bulunamadı: ' + switchName, 'error');
                 }
                 
                 // Clean URL without reloading page
@@ -10782,6 +10814,11 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
                     // navigating away from the currently active page (e.g. reports)
                     const detailPanel = document.getElementById('detail-panel');
                     detailPanel.classList.add('from-reports');
+                    // Set full-page link so user can open in a new tab
+                    const fullPageLink = document.getElementById('detail-fullpage-link');
+                    if (fullPageLink) {
+                        fullPageLink.href = `index.php?switch_id=${switchToOpen.id}&highlight_port=${portNumber}`;
+                    }
                     showSwitchDetail(switchToOpen, portNumber);
                 } else {
                     showToast('Switch bulunamadı: ' + switchName, 'error');
