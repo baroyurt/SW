@@ -471,7 +471,8 @@ function formatSpeed(int $bps): string {
         .btn-port-inline-open:hover { background: rgba(59,130,246,0.12); }
         .port-inline-frame-wrap {
             position: relative;
-            height: 600px;
+            height: 80vh;
+            min-height: 500px;
         }
         .port-inline-frame-wrap .iframe-loading {
             position: absolute;
@@ -966,13 +967,26 @@ function exportXLSX() {
 
 // ── Inline Port Detail ────────────────────────────────────────────────────────
 function gotoPortInline(switchName, portNumber) {
-    // Delegate to parent index.php to show port detail as floating overlay
-    if (window.parent !== window) {
-        window.parent.postMessage({ action: 'navigateToPort', switchName, portNumber }, '*');
-        return;
-    }
-    // Standalone fallback: open in new tab
-    window.open(`../index.php?switch=${encodeURIComponent(switchName)}&port=${portNumber}`, '_blank');
+    const panel   = document.getElementById('port-inline-panel');
+    const frame   = document.getElementById('portInlineFrame');
+    const loading = document.getElementById('portInlineLoading');
+    const title   = document.getElementById('portInlineTitle');
+    const link    = document.getElementById('portInlineOpenLink');
+
+    const embedUrl = `../index.php?switch=${encodeURIComponent(switchName)}&port=${portNumber}&embed=1`;
+    const fullUrl  = `../index.php?switch=${encodeURIComponent(switchName)}&port=${portNumber}`;
+
+    title.textContent = `${switchName} — Port ${portNumber}`;
+    if (link) link.href = fullUrl;
+
+    // Show spinner, load embed page
+    loading.style.display = 'flex';
+    frame.style.opacity = '0';
+    frame.src = embedUrl;
+
+    panel.classList.add('visible');
+    // Scroll inline panel into view
+    setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
 }
 
 function onPortInlineLoad() {

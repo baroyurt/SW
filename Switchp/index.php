@@ -8,6 +8,9 @@ $auth->requireLogin();
 
 $currentUser = $auth->getUser();
 
+// Embed mode: hide sidebar/nav when loaded inside an iframe (e.g. reports.php inline panel)
+$embedMode = !empty($_GET['embed']);
+
 // Prevent caching to avoid stale JavaScript issues
 header("Cache-Control: no-cache, no-store, must-revalidate, max-age=0");
 header("Pragma: no-cache");
@@ -808,6 +811,28 @@ header("Expires: 0");
             padding: 30px;
             border: 2px solid rgba(56, 189, 248, 0.3);
             margin-bottom: 30px;
+        }
+
+        /* Embed mode: hide chrome, show only switch detail panel (used by reports.php inline panel) */
+        body.embed-mode .sidebar,
+        body.embed-mode .sidebar-toggle,
+        body.embed-mode .home-button,
+        body.embed-mode .loading-screen { display: none !important; }
+        body.embed-mode .main-content {
+            margin-left: 0 !important;
+            padding: 16px !important;
+            min-height: unset !important;
+        }
+        body.embed-mode .page-content { display: none !important; }
+        /* Keep detail panel visible but not full-screen fixed in embed mode */
+        body.embed-mode #detail-panel {
+            display: block !important;
+            opacity: 1 !important;
+            transform: none !important;
+        }
+        body.embed-mode #detail-panel.from-reports {
+            position: static !important;
+            background: transparent !important;
         }
 
         /* When port detail is triggered from an embedded iframe (e.g. reports),
@@ -1801,7 +1826,7 @@ header("Expires: 0");
 		
     </style>
 </head>
-<body>
+<body<?= $embedMode ? ' class="embed-mode"' : '' ?>>
     <!-- Loading Screen -->
     <div class="loading-screen" id="loading-screen">
         <div class="loader">
@@ -10755,9 +10780,10 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
         // Handle URL parameters (e.g., switch_id from admin.php)
         function handleURLParameters() {
             const urlParams = new URLSearchParams(window.location.search);
-            const switchId = urlParams.get('switch_id');
+            const switchId   = urlParams.get('switch_id');
             const switchName = urlParams.get('switch');
             const portNumber = urlParams.get('port') || urlParams.get('highlight_port');
+            const isEmbed    = document.body.classList.contains('embed-mode');
             
             if (switchId) {
                 // Find the switch by ID
@@ -10778,12 +10804,16 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
                 // Navigate to switch detail by name (used by reports "Porta Git")
                 const sw = switches.find(s => s.name === switchName);
                 if (sw) {
-                    switchPage('switches');
+                    if (!isEmbed) {
+                        // Normal mode: navigate to switches page first
+                        switchPage('switches');
+                    }
+                    // In embed mode just show the detail panel directly (no page transition)
                     setTimeout(() => {
                         showSwitchDetail(sw, portNumber ? parseInt(portNumber) : null);
-                    }, 300);
+                    }, isEmbed ? 50 : 300);
                 } else {
-                    showToast('Switch bulunamadı: ' + switchName, 'error');
+                    if (!isEmbed) showToast('Switch bulunamadı: ' + switchName, 'error');
                 }
                 
                 // Clean URL without reloading page
