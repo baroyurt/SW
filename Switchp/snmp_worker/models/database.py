@@ -220,8 +220,6 @@ class PortStatusData(Base):
     first_seen = Column(DateTime, default=get_current_time, nullable=False)
     last_seen = Column(DateTime, default=get_current_time, onupdate=get_current_time, nullable=False)
     poll_timestamp = Column(DateTime, default=get_current_time, nullable=False)
-    last_counter_reset_at = Column(DateTime, nullable=True)  # set when a counter reset is detected
-    
     # Relationships
     device = relationship("SNMPDevice", back_populates="port_data")
     
