@@ -135,6 +135,60 @@ class AlarmManager:
             alarm_type in self.config.email.notify_on
         )
 
+    def _get_alarm_email_recipients(self, session: Session, alarm_type: str) -> Optional[list]:
+        """
+        Return a filtered list of email addresses for this alarm type based on
+        per-user settings stored in alarm_user_email_config joined with users.
+        Returns None when the table does not exist or has no rows for this alarm
+        type (caller should fall back to the global to_addresses list).
+        """
+        try:
+            rows = session.execute(
+                text(
+                    "SELECT u.email FROM alarm_user_email_config auc "
+                    "JOIN users u ON u.id = auc.user_id "
+                    "WHERE auc.alarm_type = :t AND auc.email_enabled = 1 "
+                    "AND u.is_active = 1 AND u.email IS NOT NULL AND u.email != ''"
+                ),
+                {"t": alarm_type}
+            ).fetchall()
+            # Only return a filtered list if at least one row exists for this alarm type;
+            # if the table is empty for this alarm type we fall back to global list.
+            all_rows = session.execute(
+                text("SELECT COUNT(*) FROM alarm_user_email_config WHERE alarm_type = :t"),
+                {"t": alarm_type}
+            ).fetchone()
+            if all_rows and all_rows[0] > 0:
+                return [r[0] for r in rows if r[0]]
+        except Exception as exc:
+            self.logger.debug(f"alarm_user_email_config not available, using global to_addresses: {exc}")
+        return None
+
+    def _log_email(self, session: Session, subject: str, recipients: list,
+                   alarm_type: str, mail_type: str, status: str, error_msg: str = None) -> None:
+        """
+        Insert a row into email_log if the table exists.
+        Silently ignores errors (table may not exist on older deployments).
+        """
+        try:
+            recipients_str = ', '.join(recipients) if recipients else ''
+            session.execute(
+                text(
+                    "IF OBJECT_ID('dbo.email_log','U') IS NOT NULL "
+                    "INSERT INTO email_log (sent_at, subject, recipients, alarm_type, mail_type, status, error_msg) "
+                    "VALUES (GETDATE(), :s, :r, :at, :mt, :st, :em)"
+                ),
+                {"s": subject[:500] if subject else None,
+                 "r": recipients_str[:2000] if recipients_str else None,
+                 "at": alarm_type[:100] if alarm_type else None,
+                 "mt": mail_type[:100] if mail_type else None,
+                 "st": status[:20],
+                 "em": error_msg[:1000] if error_msg else None}
+            )
+            session.commit()
+        except Exception as exc:
+            self.logger.debug(f"Could not log email send: {exc}")
+
     def _send_notifications(
         self,
         device: SNMPDevice,
@@ -208,27 +262,48 @@ class AlarmManager:
         
         # Send email notification
         if email_notify:
+            # Resolve per-user recipient list for this alarm type
+            email_recipients = None
+            if session is not None:
+                email_recipients = self._get_alarm_email_recipients(session, alarm_type)
+            effective_recipients = email_recipients if email_recipients is not None else self.email_service.to_addresses
+            subject_map = {
+                "port_down": f"[HIGH] Port Kapandı - {device.name}",
+                "device_unreachable": f"[CRITICAL] Device Unreachable - {device.name}",
+                "mac_moved": "CHAMADA Network Alert – MAC Hareketi",
+            }
+            email_subject = subject_map.get(alarm_type, f"CHAMADA Network Alert - {alarm_type}")
             try:
                 if alarm_type == "port_down" and port_number:
                     self.email_service.send_port_down(
-                        device.name, device.ip_address, port_number, port_name or ""
+                        device.name, device.ip_address, port_number, port_name or "",
+                        recipients=email_recipients
                     )
                 elif alarm_type == "device_unreachable":
                     self.email_service.send_device_unreachable(
-                        device.name, device.ip_address
+                        device.name, device.ip_address,
+                        recipients=email_recipients
                     )
                 elif alarm_type == "mac_moved" and extra_data:
                     self.email_service.send_mac_moved(
                         severity=severity_upper,
                         message=message,
+                        recipients=email_recipients,
                         **extra_data
                     )
                 else:
                     self.email_service.send_alarm(
-                        device.name, device.ip_address, alarm_type, severity_upper, message
+                        device.name, device.ip_address, alarm_type, severity_upper, message,
+                        recipients=email_recipients
                     )
+                if session is not None:
+                    self._log_email(session, email_subject, effective_recipients,
+                                    alarm_type, "alarm", "sent")
             except Exception as e:
                 self.logger.error(f"Failed to send email notification: {e}")
+                if session is not None:
+                    self._log_email(session, email_subject, effective_recipients,
+                                    alarm_type, "alarm", "failed", str(e))
     
     def check_device_reachability(
         self,

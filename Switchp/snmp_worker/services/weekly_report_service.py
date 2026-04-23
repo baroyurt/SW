@@ -139,7 +139,23 @@ class WeeklyReportService:
         html     = self._build_html(slow_ports, flapping, errors, vlan_alias)
         plain    = self._build_plain(slow_ports, flapping, errors, vlan_alias)
 
-        self.email_service.send_email(subject, plain, html)
+        success = self.email_service.send_email(subject, plain, html)
+        # Log the email send
+        try:
+            with self.db_manager.session_scope() as log_session:
+                log_session.execute(
+                    __import__('sqlalchemy').text(
+                        "IF OBJECT_ID('dbo.email_log','U') IS NOT NULL "
+                        "INSERT INTO email_log (sent_at, subject, recipients, alarm_type, mail_type, status) "
+                        "VALUES (GETDATE(), :s, :r, NULL, 'weekly_report', :st)"
+                    ),
+                    {"s": subject[:500],
+                     "r": ', '.join(self.email_service.to_addresses)[:2000],
+                     "st": "sent" if success else "failed"}
+                )
+                log_session.commit()
+        except Exception:
+            pass
 
     # ──────────────────────────────────────────────────────────────────────────
     # DB queries

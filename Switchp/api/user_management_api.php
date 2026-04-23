@@ -7,9 +7,61 @@ header('Content-Type: application/json');
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../auth.php';
 
+// Email address used by the SMTP sender — never add to recipient list
+const SNMP_EXCLUDE_EMAIL = 'destek@chamadaprestige.com';
+
+/**
+ * Add an email address to the SNMP config to_addresses list.
+ * Skips SNMP_EXCLUDE_EMAIL and addresses already present.
+ */
+function addEmailToSnmpConfig(string $configPath, string $email): void {
+    if (!$email || !file_exists($configPath)) return;
+    if (strcasecmp($email, SNMP_EXCLUDE_EMAIL) === 0) return;
+
+    $content = file_get_contents($configPath);
+    // Already present?
+    if (strpos($content, $email) !== false) return;
+
+    // to_addresses block with existing entries
+    if (preg_match('/^( {2}to_addresses:\s*\n)((?:[ \t]+- "[^"]*"\s*\n)*)/m', $content, $m)) {
+        $newEntry = '    - "' . $email . '"' . "\n";
+        $content = str_replace($m[0], $m[1] . $m[2] . $newEntry, $content);
+        file_put_contents($configPath, $content);
+        return;
+    }
+    // to_addresses: [] — replace with block
+    if (preg_match('/^( {2}to_addresses:\s*\[\])/m', $content, $m)) {
+        $content = str_replace($m[0], '  to_addresses:' . "\n" . '    - "' . $email . '"', $content);
+        file_put_contents($configPath, $content);
+    }
+}
+
+/**
+ * Remove an email address from the SNMP config to_addresses list.
+ */
+function removeEmailFromSnmpConfig(string $configPath, string $email): void {
+    if (!$email || !file_exists($configPath)) return;
+    $content = file_get_contents($configPath);
+    // Remove any line that contains exactly this email in a list entry
+    $escaped = preg_quote($email, '/');
+    $content = preg_replace('/^[ \t]*- "?' . $escaped . '"?[ \t]*\r?\n/m', '', $content);
+    file_put_contents($configPath, $content);
+}
+
+/**
+ * Update an email address in the SNMP config to_addresses list.
+ * Removes the old address and adds the new one (unless excluded).
+ */
+function updateEmailInSnmpConfig(string $configPath, string $oldEmail, string $newEmail): void {
+    if ($oldEmail) removeEmailFromSnmpConfig($configPath, $oldEmail);
+    if ($newEmail) addEmailToSnmpConfig($configPath, $newEmail);
+}
+
 $auth = new Auth($conn);
 $auth->requireLogin();
 $currentUser = $auth->getUser();
+
+$snmpConfigPath = __DIR__ . '/../snmp_worker/config/config.yml';
 
 if ($currentUser['role'] !== 'admin') {
     echo json_encode(['success' => false, 'error' => 'Yetkisiz erişim']);
@@ -62,6 +114,8 @@ if ($method === 'POST') {
         $stmt = $conn->prepare("INSERT INTO users (username, full_name, email, password, role, is_active) VALUES (?, ?, ?, ?, ?, 1)");
         $stmt->bind_param('sssss', $username, $fullName, $email, $hash, $role);
         if ($stmt->execute()) {
+            // Auto-add the new user's email to SNMP to_addresses
+            if ($email) addEmailToSnmpConfig($snmpConfigPath, $email);
             echo json_encode(['success' => true, 'id' => $conn->insert_id]);
         } else {
             $err = $conn->errno === 1062 ? 'Bu kullanıcı adı zaten kullanılıyor' : $stmt->error;
@@ -85,9 +139,22 @@ if ($method === 'POST') {
             exit;
         }
 
+        // Fetch old email for SNMP config sync
+        $oldEmail = null;
+        $oldRow = $conn->query("SELECT email FROM users WHERE id = " . $id);
+        if ($oldRow && ($oldRowData = $oldRow->fetch_assoc())) {
+            $oldEmail = $oldRowData['email'] ?? null;
+        }
+
         $stmt = $conn->prepare("UPDATE users SET username = ?, full_name = ?, email = ?, role = ? WHERE id = ?");
         $stmt->bind_param('ssssi', $username, $fullName, $email, $role, $id);
         if ($stmt->execute()) {
+            // Sync email change in SNMP to_addresses
+            if ($oldEmail !== null && $oldEmail !== $email) {
+                updateEmailInSnmpConfig($snmpConfigPath, $oldEmail, $email);
+            } elseif ($email && $oldEmail === null) {
+                addEmailToSnmpConfig($snmpConfigPath, $email);
+            }
             echo json_encode(['success' => true]);
         } else {
             $err = $conn->errno === 1062 ? 'Bu kullanıcı adı zaten kullanılıyor' : $stmt->error;

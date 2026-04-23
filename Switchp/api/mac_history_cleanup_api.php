@@ -231,7 +231,28 @@ if ($deleted > 0) {
               . "<tbody>{$rows}</tbody></table>";
 
     $htmlBody = chamada_email_template('MAC Değişim Geçmişi', $content, $deletedBy, $deletedByFullName, $clientIpMhc);
-    mhc_sendEmail($subject, $htmlBody);
+    $mhcSent = mhc_sendEmail($subject, $htmlBody);
+    // Log to email_log
+    try {
+        $mhcCfg = mhc_getSmtpConfig();
+        if ($mhcCfg) {
+            $tableChk = $conn->query("SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_name='email_log'");
+            if ($tableChk && ($chkRow = $tableChk->fetch_assoc()) && (int)$chkRow['cnt']) {
+                $mhcRecips = implode(', ', $mhcCfg['to_addresses'] ?? []);
+                $mhcStatus = $mhcSent ? 'sent' : 'failed';
+                $mhcSubjLog = $subject;
+                $mhcType = 'mac_history_cleanup';
+                $mhcStmt = $conn->prepare(
+                    "INSERT INTO email_log (sent_at, subject, recipients, alarm_type, mail_type, status) VALUES (NOW(), ?, ?, NULL, ?, ?)"
+                );
+                if ($mhcStmt) {
+                    $mhcStmt->bind_param('ssss', $mhcSubjLog, $mhcRecips, $mhcType, $mhcStatus);
+                    $mhcStmt->execute();
+                    $mhcStmt->close();
+                }
+            }
+        }
+    } catch (\Throwable $e) { /* ignore */ }
 }
 
 echo json_encode([

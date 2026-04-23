@@ -241,6 +241,27 @@ function sendAlarmEmail(string $subject, string $htmlBody): bool {
     }
 }
 
+/**
+ * Log an email send to the email_log table (best-effort, ignores errors).
+ */
+function logEmailSent(string $subject, array $recipients, string $mailType, bool $success, string $alarmType = null): void {
+    global $conn;
+    try {
+        $tableCheck = $conn->query("SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_name='email_log'");
+        if (!$tableCheck || !(($r = $tableCheck->fetch_assoc()) && (int)$r['cnt'])) return;
+        $recipientsStr = implode(', ', $recipients);
+        $status = $success ? 'sent' : 'failed';
+        $stmt = $conn->prepare(
+            "INSERT INTO email_log (sent_at, subject, recipients, alarm_type, mail_type, status) VALUES (NOW(), ?, ?, ?, ?, ?)"
+        );
+        $stmt->bind_param('sssss', $subject, $recipientsStr, $alarmType, $mailType, $status);
+        $stmt->execute();
+        $stmt->close();
+    } catch (\Throwable $e) {
+        // Silently ignore
+    }
+}
+
 // ── Lightweight native xlsx / csv reader (no vendor dependency) ──────────────
 
 /**
@@ -861,7 +882,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Dosya adı:</strong> " . htmlspecialchars($filename) . "</p>"
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Kayıt sayısı:</strong> <span style='color:#d4a017;font-weight:700;'>{$recordCount}</span></p>";
                 $body = chamada_email_template('Excel Export Bildirimi', $dlContent, $downloadedBy, $dlFullName, $dlClientIp);
-                sendAlarmEmail($subj, $body);
+                $emailSuccess = sendAlarmEmail($subj, $body);
+                $cfg = getSmtpConfig();
+                if ($cfg) logEmailSent($subj, $cfg['to_addresses'] ?? [], 'excel_export', $emailSuccess);
             }
 
             header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -1408,7 +1431,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Atlanan (mevcut aktif alarm):</strong> {$scan_skipped}</p>"
                     . "<p style='margin:16px 0 0;color:#8899bb;font-size:13px;'>Kayıtsız cihazları kayıt altına almak için <em>Device Import</em> sayfasını ziyaret edin.</p>";
                 $htmlBody = chamada_email_template('Kayıtsız MAC Alarm Özeti', $macContent);
-                sendAlarmEmail($subject, $htmlBody);
+                $emailResult = sendAlarmEmail($subject, $htmlBody);
+                $cfg = getSmtpConfig();
+                if ($cfg) logEmailSent($subject, $cfg['to_addresses'] ?? [], 'alarm', $emailResult, 'unregistered_mac');
             }
 
             echo json_encode([
@@ -1583,7 +1608,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Atlanan (mevcut aktif alarm):</strong> {$alarms_skipped}</p>"
                     . "<p style='margin:16px 0 0;color:#8899bb;font-size:13px;'>Kayıtsız cihazları kayıt altına almak için <em>Device Import</em> sayfasını ziyaret edin.</p>";
                 $htmlBody = chamada_email_template('Kayıtsız MAC Alarm Özeti', $macContent2);
-                sendAlarmEmail($subject, $htmlBody);
+                $emailResult2 = sendAlarmEmail($subject, $htmlBody);
+                $cfg2 = getSmtpConfig();
+                if ($cfg2) logEmailSent($subject, $cfg2['to_addresses'] ?? [], 'alarm', $emailResult2, 'unregistered_mac');
             }
 
             echo json_encode([
