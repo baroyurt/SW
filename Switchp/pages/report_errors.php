@@ -115,6 +115,17 @@ foreach ($ports as &$row) {
 }
 unset($row);
 
+// Baseline varsa ve tüm delta değerleri 0 ise portları listeden çıkar
+$ports = array_values(array_filter($ports, function($row) {
+    if ($row['has_baseline']) {
+        return ($row['disp_in_errors'] > 0
+             || $row['disp_out_errors'] > 0
+             || $row['disp_out_discards'] > 0);
+    }
+    return true;
+}));
+$cnt = count($ports);
+
 // Özet sayılar (delta değerlerine göre)
 $totalInErr  = array_sum(array_column($ports, 'disp_in_errors'));
 $totalOutErr = array_sum(array_column($ports, 'disp_out_errors'));
