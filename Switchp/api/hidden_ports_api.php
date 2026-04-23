@@ -39,9 +39,9 @@ if ($method === 'GET') {
     }
 
     if ($action === 'hide') {
-        $stmt = $conn->prepare("IF NOT EXISTS (SELECT 1 FROM report_hidden_ports WHERE row_key = ?)
-                                INSERT INTO report_hidden_ports (row_key) VALUES (?)");
-        $stmt->execute([$row_key, $row_key]);
+        // Simple INSERT — PK constraint silently prevents duplicates via the wrapper's catch
+        $stmt = $conn->prepare("INSERT INTO report_hidden_ports (row_key) VALUES (?)");
+        $stmt->execute([$row_key]);
         echo json_encode(['success' => true]);
 
     } elseif ($action === 'show') {
