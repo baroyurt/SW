@@ -80,8 +80,7 @@ sort($switchList);
 <title>Hata / Drop Analizi</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <style>
-    html { zoom: 0.95; overflow-x:hidden; }
-    body { overflow-x:hidden; }
+    html { zoom: 0.95; }
 
     /* Scrollbar — Dashboard ile aynı mavi stil */
     ::-webkit-scrollbar { width:10px; height:10px; }
@@ -103,7 +102,7 @@ sort($switchList);
     }
     * { margin:0; padding:0; box-sizing:border-box; }
     body { font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background:var(--dark); color:var(--text); padding:20px; overflow-x:hidden; }
-    .container { max-width:1400px; margin:0 auto; }
+    .container { max-width:1400px; margin:0 auto; overflow-x:hidden; }
 
     .header { background:var(--dark-light); padding:20px 24px; border-radius:12px; border:1px solid var(--border); margin-bottom:20px; display:flex; align-items:center; gap:16px; }
     .header-icon { font-size:32px; color:var(--warning); }
