@@ -25,7 +25,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'GET') {
     // Return all hidden row keys
     $stmt = $conn->query("SELECT row_key FROM report_hidden_ports");
-    $keys = $stmt ? array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'row_key') : [];
+    $keys = $stmt ? array_column($stmt->fetch_all(), 'row_key') : [];
     echo json_encode(['success' => true, 'hidden' => $keys]);
 
 } elseif ($method === 'POST') {
