@@ -81,6 +81,14 @@ sort($switchList);
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <style>
     html { zoom: 0.95; }
+
+    /* Scrollbar — Dashboard ile aynı mavi stil */
+    ::-webkit-scrollbar { width:10px; height:10px; }
+    ::-webkit-scrollbar-track { background:var(--dark,#0f172a); }
+    ::-webkit-scrollbar-thumb { background:#3b82f6; border-radius:5px; }
+    ::-webkit-scrollbar-thumb:hover { background:#2563eb; }
+    * { scrollbar-width:thin; scrollbar-color:#3b82f6 #0f172a; }
+
     :root {
         --primary:      #3b82f6;
         --success:      #10b981;
@@ -149,8 +157,9 @@ sort($switchList);
     .btn-secondary.active { border-color:var(--warning); color:var(--warning); background:rgba(245,158,11,0.08); }
     .btn-hide-row { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #ef4444; color:#ef4444; background:transparent; cursor:pointer; white-space:nowrap; }
     .btn-hide-row:hover { background:rgba(239,68,68,0.12); }
-    .btn-goto-port { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #3b82f6; color:#3b82f6; background:transparent; cursor:pointer; white-space:nowrap; text-decoration:none; display:inline-flex; align-items:center; gap:4px; margin-right:4px; }
+    .btn-goto-port { padding:3px 8px; font-size:11px; border-radius:4px; border:1px solid #3b82f6; color:#3b82f6; background:transparent; cursor:pointer; white-space:nowrap; text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
     .btn-goto-port:hover { background:rgba(59,130,246,0.12); }
+    .action-cell { display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
     /* Download password modal */
     .dl-modal { display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(5px); justify-content:center; align-items:center; }
     .dl-modal.show { display:flex; }
@@ -285,7 +294,7 @@ sort($switchList);
                     <th onclick="sortTable(9)" title="Trafik: Gelen / Giden bayt">Trafik ↓/↑ <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(10)" title="Fiziksel katman (kablo/SFP/port) sağlık analizi">Fiziksel Katman <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(11)">Son Poll <span class="sort-icon fas fa-sort"></span></th>
-                    <th style="width:180px;min-width:180px"></th>
+                    <th style="width:110px;min-width:110px"></th>
                 </tr>
             </thead>
             <tbody id="tableBody">
@@ -406,9 +415,11 @@ sort($switchList);
                     </td>
                     <td><?= $physLabel ?></td>
                     <td style="color:var(--text-light);font-size:11px"><?= $ts ?></td>
-                    <td style="text-align:right;white-space:nowrap;padding-right:14px;min-width:180px">
+                    <td style="padding-right:10px;min-width:110px">
+                        <div class="action-cell">
                         <button class="btn-goto-port" onclick="gotoPort(<?= htmlspecialchars(json_encode($row['switch_name']), ENT_QUOTES) ?>,<?= (int)$row['port_number'] ?>)" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
                         <button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
+                        </div>
                     </td>
                 </tr>
                 <?php endforeach; ?>
