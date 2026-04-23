@@ -794,18 +794,43 @@ function refreshCurrent() {
     }
 }
 
-// ── Per-row hide (localStorage) ──────────────────────────────────────────────
-const LS_KEY = 'reports_hidden_rows';
-let hiddenRows = new Set(JSON.parse(localStorage.getItem(LS_KEY) || '[]'));
+// ── Per-row hide (server-side, global for all users) ─────────────────────────
+let hiddenRows = new Set();
 let showingHidden = false;
 
-function saveHidden() {
-    localStorage.setItem(LS_KEY, JSON.stringify([...hiddenRows]));
+// Load hidden rows from server on page load
+function loadHiddenRows() {
+    fetch('../api/hidden_ports_api.php')
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                hiddenRows = new Set(d.hidden);
+                updateHideBtn();
+                filterTable();
+            }
+        })
+        .catch(() => {});
+}
+
+function saveHide(key) {
+    fetch('../api/hidden_ports_api.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'hide', row_key: key })
+    }).catch(() => {});
+}
+
+function saveShow(key) {
+    fetch('../api/hidden_ports_api.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'show', row_key: key })
+    }).catch(() => {});
 }
 
 function hideRow(key) {
     hiddenRows.add(key);
-    saveHidden();
+    saveHide(key);
     updateHideBtn();
     updateRowButtons();
     filterTable();
@@ -813,7 +838,7 @@ function hideRow(key) {
 
 function showRow(key) {
     hiddenRows.delete(key);
-    saveHidden();
+    saveShow(key);
     if (hiddenRows.size === 0) {
         showingHidden = false;
     }
@@ -908,9 +933,9 @@ function filterTable() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    loadHiddenRows();
     updateHideBtn();
     updateRowButtons();
-    filterTable();
 });
 
 // ── Sort ─────────────────────────────────────────────────────────────────────
