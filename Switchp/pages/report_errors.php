@@ -1,7 +1,8 @@
 <?php
 /**
- * report_errors.php — Hata / Drop Raporu
+ * report_errors.php — Hata / Drop Analizi
  * in_errors, out_errors, out_discards (= CLI Total output drops) sıfırdan büyük olan portları listeler.
+ * Fiziksel katman (kablo/SFP/port) sağlık analizi ve trafik bilgisi dahil.
  */
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../auth.php';
@@ -11,6 +12,16 @@ $auth->requireLogin();
 session_write_close();
 
 header('Cache-Control: no-cache, no-store, must-revalidate');
+
+// ── Byte formatter ────────────────────────────────────────────────────────────
+function formatBytes(int $bytes): string {
+    if ($bytes <= 0)           return '0 B';
+    if ($bytes < 1024)         return $bytes . ' B';
+    if ($bytes < 1048576)      return round($bytes / 1024, 1) . ' KB';
+    if ($bytes < 1073741824)   return round($bytes / 1048576, 1) . ' MB';
+    if ($bytes < 1099511627776) return round($bytes / 1073741824, 1) . ' GB';
+    return round($bytes / 1099511627776, 2) . ' TB';
+}
 
 // ── Hata / Drop olan portlar ──────────────────────────────────────────────────
 $sql = "
@@ -24,6 +35,9 @@ $sql = "
         COALESCE(psd.in_errors,   0) AS in_errors,
         COALESCE(psd.out_errors,  0) AS out_errors,
         COALESCE(psd.out_discards,0) AS out_discards,
+        COALESCE(psd.in_discards, 0) AS in_discards,
+        COALESCE(psd.in_octets,   0) AS in_octets,
+        COALESCE(psd.out_octets,  0) AS out_octets,
         COALESCE(psd.in_errors,0) + COALESCE(psd.out_errors,0)
             + COALESCE(psd.out_discards,0) AS total_issues,
         sd.name        AS switch_name,
@@ -63,7 +77,7 @@ sort($switchList);
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hata / Drop Raporu</title>
+<title>Hata / Drop Analizi</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <style>
     html { zoom: 0.95; }
@@ -150,6 +164,30 @@ sort($switchList);
 
     /* Total issues mini badge */
     .total-issues { display:inline-block; padding:3px 9px; border-radius:10px; font-size:12px; font-weight:700; background:#2d1f07; color:#fcd34d; border:1px solid #d97706; }
+
+    /* Physical layer badge */
+    .phys-ok   { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:10px; font-size:11px; font-weight:700; background:#0d2b1a; color:#4ade80; border:1px solid #16a34a; white-space:nowrap; }
+    .phys-warn { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:10px; font-size:11px; font-weight:700; background:#2b0d0d; color:#f87171; border:1px solid #b91c1c; white-space:nowrap; }
+
+    /* Traffic display */
+    .trafik-cell { font-size:11px; line-height:1.7; }
+    .t-in  { color:#38bdf8; }
+    .t-out { color:#a78bfa; }
+
+    /* Hover-tooltip wrapper */
+    .tooltip-wrap { position:relative; display:inline-block; cursor:help; }
+    .tooltip-wrap .tt-box {
+        display:none; position:absolute; z-index:9999; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%);
+        min-width:280px; background:#0f172a; border:1px solid #334155; border-radius:10px;
+        padding:12px 14px; box-shadow:0 8px 24px rgba(0,0,0,0.6); text-align:left; pointer-events:none;
+    }
+    .tooltip-wrap:hover .tt-box { display:block; }
+    .tt-box h4  { font-size:12px; color:#f59e0b; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+    .tt-box .tt-row { font-size:11px; color:#cbd5e1; line-height:1.8; }
+    .tt-box .tt-phys-ok   { color:#4ade80; font-weight:700; }
+    .tt-box .tt-phys-warn { color:#f87171; font-weight:700; }
+    .tt-box .tt-sep { border:none; border-top:1px solid #334155; margin:8px 0; }
+    .tt-box .tt-cumul { font-size:10px; color:#64748b; font-style:italic; }
 </style>
 </head>
 <body>
@@ -159,9 +197,9 @@ sort($switchList);
     <div class="header">
         <div class="header-icon"><i class="fas fa-bug"></i></div>
         <div>
-            <h1>Hata / Drop Raporu</h1>
+            <h1>Hata / Drop Analizi</h1>
             <p>
-                Gelen/Giden Hata veya Output Drop (out_discards = CLI Total output drops) değeri sıfırdan büyük olan tüm portlar.
+                Gelen/Giden Hata veya Output Drop değeri sıfırdan büyük portlar · Fiziksel katman sağlık analizi dahil.
                 &nbsp;·&nbsp; Son yenileme: <strong><?= date('d.m.Y H:i:s') ?></strong>
             </p>
         </div>
@@ -222,7 +260,7 @@ sort($switchList);
         <?php endif; ?>
     </div>
 
-    <div class="section-title"><i class="fas fa-exclamation-circle"></i> Hata ve Drop Bulunan Portlar</div>
+    <div class="section-title"><i class="fas fa-exclamation-circle"></i> Hata ve Drop Bulunan Portlar — Analiz</div>
 
     <div class="table-wrap">
         <?php if (empty($ports)): ?>
@@ -242,9 +280,11 @@ sort($switchList);
                     <th onclick="sortTable(4)">Durum <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(5)" title="Gelen Hata">↓ Hata <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(6)" title="Giden Hata">↑ Hata <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(7)" title="Output Drop (CLI Total output drops)">Output Drop <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(7)" title="Output Drop (CLI Total output drops)">↑ Drop <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(8)">Toplam <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(9)">Son Poll <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(9)" title="Trafik: Gelen / Giden bayt">Trafik ↓/↑ <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(10)" title="Fiziksel katman (kablo/SFP/port) sağlık analizi">Fiziksel Katman <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(11)">Son Poll <span class="sort-icon fas fa-sort"></span></th>
                     <th style="width:160px"></th>
                 </tr>
             </thead>
@@ -253,6 +293,7 @@ sort($switchList);
                     $inErr  = (int)$row['in_errors'];
                     $outErr = (int)$row['out_errors'];
                     $outDis = (int)$row['out_discards'];
+                    $inDis  = (int)$row['in_discards'];
                     $total  = $inErr + $outErr + $outDis;
                     $alias  = trim($row['port_alias'] ?? '');
                     $connDev = trim($row['conn_device'] ?? '');
@@ -261,6 +302,25 @@ sort($switchList);
                         ? date('d.m.Y H:i', strtotime($row['poll_timestamp'])) : '-';
                     $statusClass = ($row['oper_status'] === 'up') ? 'badge-up' : 'badge-down';
                     $statusText  = strtoupper($row['oper_status'] ?? 'UNKNOWN');
+
+                    // Trafik
+                    $inBytes  = (int)$row['in_octets'];
+                    $outBytes = (int)$row['out_octets'];
+                    $inBytesH  = formatBytes($inBytes);
+                    $outBytesH = formatBytes($outBytes);
+
+                    // Fiziksel katman analizi:
+                    // in_errors (CRC/frame/runts) > 0 → kablo/SFP sorunu
+                    $physOk = ($inErr === 0 && $outErr === 0);
+                    $physLabel = $physOk
+                        ? '<span class="phys-ok"><i class="fas fa-check-circle"></i>Fiziksel Sağlıklı</span>'
+                        : '<span class="phys-warn"><i class="fas fa-exclamation-triangle"></i>Fiziksel Kontrol Et</span>';
+
+                    // Tooltip içeriği (JSON-safe data attributes)
+                    $ttPhysClass = $physOk ? 'tt-phys-ok' : 'tt-phys-warn';
+                    $ttPhysMsg   = $physOk
+                        ? '🟢 Fiziksel katman sağlıklı. Sorun SW yapısında (QoS / buffer / port hızı).'
+                        : '🔴 Gelen hata var! Kablo, SFP veya port sorunlu olabilir.';
 
                     // data attributes for type filter
                     $typeAttr = '';
@@ -292,8 +352,59 @@ sort($switchList);
                     <td><span class="<?= $statusClass ?>"><?= $statusText ?></span></td>
                     <td><span class="<?= $inErr  > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($inErr)  ?></span></td>
                     <td><span class="<?= $outErr > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($outErr) ?></span></td>
-                    <td><span class="<?= $outDis > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($outDis) ?></span></td>
-                    <td><span class="total-issues"><?= number_format($total) ?></span></td>
+                    <td>
+                        <div class="tooltip-wrap">
+                            <span class="<?= $outDis > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($outDis) ?></span>
+                            <?php if ($outDis > 0): ?>
+                            <div class="tt-box">
+                                <h4><i class="fas fa-arrow-up"></i> Çıkış Drop Analizi</h4>
+                                <div class="tt-row">
+                                    <span class="<?= $ttPhysClass ?>"><?= $ttPhysMsg ?></span>
+                                </div>
+                                <hr class="tt-sep">
+                                <div class="tt-row">
+                                    <strong>↓ Gelen Hata:</strong> <?= number_format($inErr) ?><?= $inErr > 0 ? ' <span style="color:#f87171">⚠️</span>' : ' ✅' ?><br>
+                                    <strong>↑ Giden Hata:</strong> <?= number_format($outErr) ?><?= $outErr > 0 ? ' <span style="color:#f87171">⚠️</span>' : ' ✅' ?><br>
+                                    <strong>↓ Gelen Drop:</strong> <?= number_format($inDis) ?><br>
+                                    <strong>↑ Çıkış Drop:</strong> <?= number_format($outDis) ?>
+                                </div>
+                                <hr class="tt-sep">
+                                <div class="tt-cumul">⚠️ Bu sayaç SW reboot edilene kadar sıfırlanmaz (kümülatif).</div>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="tooltip-wrap">
+                            <span class="total-issues"><?= number_format($total) ?></span>
+                            <div class="tt-box">
+                                <h4><i class="fas fa-chart-bar"></i> Toplam Sorun Analizi</h4>
+                                <div class="tt-row">
+                                    <span class="<?= $ttPhysClass ?>"><?= $ttPhysMsg ?></span>
+                                </div>
+                                <hr class="tt-sep">
+                                <div class="tt-row">
+                                    <strong>↓ Gelen Hata:</strong> <?= number_format($inErr) ?><?= $inErr > 0 ? ' <span style="color:#f87171">⚠️</span>' : ' ✅' ?><br>
+                                    <strong>↑ Giden Hata:</strong> <?= number_format($outErr) ?><?= $outErr > 0 ? ' <span style="color:#f87171">⚠️</span>' : ' ✅' ?><br>
+                                    <strong>↑ Çıkış Drop:</strong> <?= number_format($outDis) ?>
+                                </div>
+                                <?php if ($inBytes > 0 || $outBytes > 0): ?>
+                                <hr class="tt-sep">
+                                <div class="tt-row">
+                                    <span class="t-in">↓ Gelen Trafik: <?= $inBytesH ?></span><br>
+                                    <span class="t-out">↑ Giden Trafik: <?= $outBytesH ?></span>
+                                </div>
+                                <?php endif; ?>
+                                <hr class="tt-sep">
+                                <div class="tt-cumul">⚠️ Sayaçlar kümülatif — SW reboot edilene kadar sıfırlanmaz.</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="trafik-cell">
+                        <span class="t-in">↓ <?= $inBytesH ?></span><br>
+                        <span class="t-out">↑ <?= $outBytesH ?></span>
+                    </td>
+                    <td><?= $physLabel ?></td>
                     <td style="color:var(--text-light);font-size:11px"><?= $ts ?></td>
                     <td style="text-align:right;white-space:nowrap;padding-right:10px">
                         <button class="btn-goto-port" onclick="gotoPort(<?= htmlspecialchars(json_encode($row['switch_name']), ENT_QUOTES) ?>,<?= (int)$row['port_number'] ?>)" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
