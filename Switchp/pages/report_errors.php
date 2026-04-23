@@ -13,6 +13,23 @@ session_write_close();
 
 header('Cache-Control: no-cache, no-store, must-revalidate');
 
+// Baseline tablosunu oluştur (yoksa)
+$conn->query("CREATE TABLE IF NOT EXISTS port_counter_baselines (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    switch_id INT NOT NULL,
+    port_number INT NOT NULL,
+    baseline_in_errors BIGINT NOT NULL DEFAULT 0,
+    baseline_out_discards BIGINT NOT NULL DEFAULT 0,
+    baseline_in_discards BIGINT NOT NULL DEFAULT 0,
+    baseline_out_errors BIGINT NOT NULL DEFAULT 0,
+    baseline_in_octets BIGINT NOT NULL DEFAULT 0,
+    baseline_out_octets BIGINT NOT NULL DEFAULT 0,
+    reset_at DATETIME,
+    reset_by VARCHAR(100),
+    note TEXT,
+    UNIQUE KEY uq_sw_port (switch_id, port_number)
+)");
+
 // ── Byte formatter ────────────────────────────────────────────────────────────
 function formatBytes(int $bytes): string {
     if ($bytes <= 0)           return '0 B';
@@ -23,7 +40,7 @@ function formatBytes(int $bytes): string {
     return round($bytes / 1099511627776, 2) . ' TB';
 }
 
-// ── Hata / Drop olan portlar ──────────────────────────────────────────────────
+// ── Hata / Drop olan portlar (baseline ile birlikte) ─────────────────────────
 $sql = "
     SELECT
         psd.device_id,
@@ -44,10 +61,20 @@ $sql = "
         sd.ip_address,
         sd.model       AS sw_model,
         mdr.device_name AS conn_device,
-        psd.poll_timestamp
+        psd.poll_timestamp,
+        pcb.baseline_in_errors,
+        pcb.baseline_out_discards,
+        pcb.baseline_in_discards,
+        pcb.baseline_out_errors,
+        pcb.baseline_in_octets,
+        pcb.baseline_out_octets,
+        pcb.reset_at,
+        pcb.reset_by
     FROM port_status_data psd
     JOIN snmp_devices sd ON sd.id = psd.device_id
     LEFT JOIN mac_device_registry mdr ON mdr.mac_address = psd.mac_address
+    LEFT JOIN port_counter_baselines pcb
+        ON pcb.switch_id = psd.device_id AND pcb.port_number = psd.port_number
     WHERE (
         COALESCE(psd.in_errors,   0) > 0 OR
         COALESCE(psd.out_errors,  0) > 0 OR
@@ -63,10 +90,35 @@ $result = $conn->query($sql);
 $ports  = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 $cnt    = count($ports);
 
-// Özet sayılar
-$totalInErr  = array_sum(array_column($ports, 'in_errors'));
-$totalOutErr = array_sum(array_column($ports, 'out_errors'));
-$totalOutDis = array_sum(array_column($ports, 'out_discards'));
+// Delta hesaplama (baseline varsa fark, yoksa kümülatif)
+foreach ($ports as &$row) {
+    $hasBaseline = !empty($row['reset_at']);
+    if ($hasBaseline) {
+        $row['disp_in_errors']    = max(0, (int)$row['in_errors']    - (int)$row['baseline_in_errors']);
+        $row['disp_out_errors']   = max(0, (int)$row['out_errors']   - (int)$row['baseline_out_errors']);
+        $row['disp_out_discards'] = max(0, (int)$row['out_discards'] - (int)$row['baseline_out_discards']);
+        $row['disp_in_discards']  = max(0, (int)$row['in_discards']  - (int)$row['baseline_in_discards']);
+        $row['disp_in_octets']    = max(0, (int)$row['in_octets']    - (int)$row['baseline_in_octets']);
+        $row['disp_out_octets']   = max(0, (int)$row['out_octets']   - (int)$row['baseline_out_octets']);
+        $row['has_baseline']      = true;
+        $row['reset_at_fmt']      = date('d.m.Y H:i', strtotime($row['reset_at']));
+    } else {
+        $row['disp_in_errors']    = (int)$row['in_errors'];
+        $row['disp_out_errors']   = (int)$row['out_errors'];
+        $row['disp_out_discards'] = (int)$row['out_discards'];
+        $row['disp_in_discards']  = (int)$row['in_discards'];
+        $row['disp_in_octets']    = (int)$row['in_octets'];
+        $row['disp_out_octets']   = (int)$row['out_octets'];
+        $row['has_baseline']      = false;
+        $row['reset_at_fmt']      = '';
+    }
+}
+unset($row);
+
+// Özet sayılar (delta değerlerine göre)
+$totalInErr  = array_sum(array_column($ports, 'disp_in_errors'));
+$totalOutErr = array_sum(array_column($ports, 'disp_out_errors'));
+$totalOutDis = array_sum(array_column($ports, 'disp_out_discards'));
 
 // Switch filtre listesi
 $switchList = array_unique(array_column($ports, 'switch_name'));
@@ -159,7 +211,15 @@ sort($switchList);
     .btn-hide-row:hover { background:rgba(239,68,68,0.12); }
     .btn-goto-port { padding:3px 8px; font-size:11px; border-radius:4px; border:1px solid #3b82f6; color:#3b82f6; background:transparent; cursor:pointer; white-space:nowrap; text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
     .btn-goto-port:hover { background:rgba(59,130,246,0.12); }
+    .btn-reset-baseline { padding:3px 8px; font-size:11px; border-radius:4px; border:1px solid #10b981; color:#10b981; background:transparent; cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; gap:4px; }
+    .btn-reset-baseline:hover { background:rgba(16,185,129,0.12); }
+    .btn-reset-baseline.loading { opacity:0.5; cursor:not-allowed; }
     .action-cell { display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
+    .baseline-label { font-size:10px; color:#64748b; font-style:italic; }
+    .baseline-label.has-bl { color:#10b981; font-style:normal; }
+    /* Filtre checkbox */
+    .filter-check-wrap { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-light); cursor:pointer; white-space:nowrap; }
+    .filter-check-wrap input[type=checkbox] { width:14px; height:14px; cursor:pointer; accent-color:var(--primary); }
     /* Download password modal */
     .dl-modal { display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(5px); justify-content:center; align-items:center; }
     .dl-modal.show { display:flex; }
@@ -260,11 +320,18 @@ sort($switchList);
             <option value="out_errors">Giden Hata</option>
             <option value="out_discards">Output Drop</option>
         </select>
+        <label class="filter-check-wrap" title="Sadece baseline sonrası delta > 0 olan satırları göster">
+            <input type="checkbox" id="onlyDeltaFilter" onchange="filterTable()">
+            🔄 Sadece yeni hatalar
+        </label>
         <button class="btn btn-secondary" onclick="location.reload()"><i class="fas fa-sync-alt"></i> Yenile</button>
         <button class="btn btn-secondary" id="btnShowHidden" onclick="toggleHiddenView()" disabled>
             <i class="fas fa-eye" id="btnHideIcon"></i> <span id="btnHideLabel">Gizlileri Göster (0)</span>
         </button>
         <?php if ($cnt > 0): ?>
+        <button class="btn btn-secondary" id="btnResetAll" onclick="resetAllBaselines()" title="Listedeki tüm portlar için yazılımsal baseline oluştur" style="border-color:#10b981;color:#10b981;">
+            <i class="fas fa-redo"></i> Tüm Hatalı Portları Sıfırla
+        </button>
         <button class="btn btn-secondary" onclick="openDlModal()"><i class="fas fa-file-excel"></i> Excel</button>
         <?php endif; ?>
     </div>
@@ -294,15 +361,15 @@ sort($switchList);
                     <th onclick="sortTable(9)" style="width:9%" title="Trafik: Gelen / Giden bayt">Trafik ↓/↑ <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(10)" style="width:10%" title="Fiziksel katman (kablo/SFP/port) sağlık analizi">Fiziksel Katman <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(11)" style="width:8%">Son Poll <span class="sort-icon fas fa-sort"></span></th>
-                    <th style="width:8%"></th>
+                    <th style="width:11%"></th>
                 </tr>
             </thead>
             <tbody id="tableBody">
                 <?php foreach ($ports as $row):
-                    $inErr  = (int)$row['in_errors'];
-                    $outErr = (int)$row['out_errors'];
-                    $outDis = (int)$row['out_discards'];
-                    $inDis  = (int)$row['in_discards'];
+                    $inErr  = (int)$row['disp_in_errors'];
+                    $outErr = (int)$row['disp_out_errors'];
+                    $outDis = (int)$row['disp_out_discards'];
+                    $inDis  = (int)$row['disp_in_discards'];
                     $total  = $inErr + $outErr + $outDis;
                     $alias  = trim($row['port_alias'] ?? '');
                     $connDev = trim($row['conn_device'] ?? '');
@@ -313,23 +380,33 @@ sort($switchList);
                     $statusText  = strtoupper($row['oper_status'] ?? 'UNKNOWN');
 
                     // Trafik
-                    $inBytes  = (int)$row['in_octets'];
-                    $outBytes = (int)$row['out_octets'];
+                    $inBytes  = (int)$row['disp_in_octets'];
+                    $outBytes = (int)$row['disp_out_octets'];
                     $inBytesH  = formatBytes($inBytes);
                     $outBytesH = formatBytes($outBytes);
 
-                    // Fiziksel katman analizi:
-                    // in_errors (CRC/frame/runts) > 0 → kablo/SFP sorunu
+                    // Fiziksel katman analizi
                     $physOk = ($inErr === 0 && $outErr === 0);
                     $physLabel = $physOk
                         ? '<span class="phys-ok"><i class="fas fa-check-circle"></i>Fiziksel Sağlıklı</span>'
                         : '<span class="phys-warn"><i class="fas fa-exclamation-triangle"></i>Fiziksel Kontrol Et</span>';
 
-                    // Tooltip içeriği (JSON-safe data attributes)
                     $ttPhysClass = $physOk ? 'tt-phys-ok' : 'tt-phys-warn';
                     $ttPhysMsg   = $physOk
                         ? '🟢 Fiziksel katman sağlıklı. Sorun SW yapısında (QoS / buffer / port hızı).'
                         : '🔴 Gelen hata var! Kablo, SFP veya port sorunlu olabilir.';
+
+                    // Baseline bilgileri
+                    $hasBaseline   = (bool)$row['has_baseline'];
+                    $resetAtFmt    = $row['reset_at_fmt'] ?? '';
+                    $resetBy       = htmlspecialchars($row['reset_by'] ?? '');
+                    if ($hasBaseline) {
+                        $tooltipCumul = '✅ Yazılımsal sıfırlama: ' . $resetAtFmt . ' (' . $resetBy . ')<br>SNMP kümülatif; gösterilen değerler o tarihten sonraki deltadır.';
+                        $baselineLabel = '<span class="baseline-label has-bl">🔄 Son sıfırlama: ' . $resetAtFmt . '</span>';
+                    } else {
+                        $tooltipCumul = 'ℹ️ Kümülatif sayaç gösteriliyor. 🔄 Sıfırla butonu ile yazılımsal baseline oluşturabilirsiniz.';
+                        $baselineLabel = '<span class="baseline-label">Kümülatif (reboot\'tan beri)</span>';
+                    }
 
                     // data attributes for type filter
                     $typeAttr = '';
@@ -337,10 +414,17 @@ sort($switchList);
                     if ($outErr > 0) $typeAttr .= ' out_errors';
                     if ($outDis > 0) $typeAttr .= ' out_discards';
                     $rowKey = htmlspecialchars('err:' . ($row['switch_name'] ?? '') . ':' . (int)$row['port_number']);
+
+                    // delta > 0 data attribute için
+                    $hasDelta = ($inErr > 0 || $outErr > 0 || $outDis > 0) ? 'true' : 'false';
                 ?>
                 <tr data-switch="<?= htmlspecialchars($row['switch_name'] ?? '') ?>"
                     data-types="<?= trim($typeAttr) ?>"
-                    data-rowkey="<?= $rowKey ?>">
+                    data-rowkey="<?= $rowKey ?>"
+                    data-switch-id="<?= (int)$row['device_id'] ?>"
+                    data-port-number="<?= (int)$row['port_number'] ?>"
+                    data-has-baseline="<?= $hasBaseline ? 'true' : 'false' ?>"
+                    data-has-delta="<?= $hasDelta ?>">
                     <td>
                         <?= htmlspecialchars($row['switch_name'] ?? '-') ?>
                         <?php if (!empty($row['ip_address'])): ?>
@@ -359,11 +443,11 @@ sort($switchList);
                     </td>
                     <td><?= $row['vlan_id'] ? '<span class="badge-vlan">' . (int)$row['vlan_id'] . '</span>' : '-' ?></td>
                     <td><span class="<?= $statusClass ?>"><?= $statusText ?></span></td>
-                    <td><span class="<?= $inErr  > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($inErr)  ?></span></td>
-                    <td><span class="<?= $outErr > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($outErr) ?></span></td>
+                    <td><span class="<?= $inErr  > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($inErr)  ?></span><?= $hasBaseline ? ' <span style="color:#10b981;font-size:10px">Δ</span>' : '' ?></td>
+                    <td><span class="<?= $outErr > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($outErr) ?></span><?= $hasBaseline ? ' <span style="color:#10b981;font-size:10px">Δ</span>' : '' ?></td>
                     <td>
                         <div class="tooltip-wrap">
-                            <span class="<?= $outDis > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($outDis) ?></span>
+                            <span class="<?= $outDis > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($outDis) ?></span><?= $hasBaseline ? ' <span style="color:#10b981;font-size:10px">Δ</span>' : '' ?>
                             <?php if ($outDis > 0): ?>
                             <div class="tt-box">
                                 <h4><i class="fas fa-arrow-up"></i> Çıkış Drop Analizi</h4>
@@ -378,7 +462,7 @@ sort($switchList);
                                     <strong>↑ Çıkış Drop:</strong> <?= number_format($outDis) ?>
                                 </div>
                                 <hr class="tt-sep">
-                                <div class="tt-cumul">⚠️ Bu sayaç SW reboot edilene kadar sıfırlanmaz (kümülatif).</div>
+                                <div class="tt-cumul"><?= $tooltipCumul ?></div>
                             </div>
                             <?php endif; ?>
                         </div>
@@ -405,7 +489,7 @@ sort($switchList);
                                 </div>
                                 <?php endif; ?>
                                 <hr class="tt-sep">
-                                <div class="tt-cumul">⚠️ Sayaçlar kümülatif — SW reboot edilene kadar sıfırlanmaz.</div>
+                                <div class="tt-cumul"><?= $tooltipCumul ?></div>
                             </div>
                         </div>
                     </td>
@@ -418,7 +502,9 @@ sort($switchList);
                     <td style="padding-right:6px">
                         <div class="action-cell">
                         <button class="btn-goto-port" onclick="gotoPort(<?= htmlspecialchars(json_encode($row['switch_name']), ENT_QUOTES) ?>,<?= (int)$row['port_number'] ?>)" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
+                        <button class="btn-reset-baseline" onclick="resetBaseline(this,<?= (int)$row['device_id'] ?>,<?= (int)$row['port_number'] ?>)" title="Yazılımsal sayaç sıfırla"><i class="fas fa-redo"></i> Sıfırla</button>
                         <button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
+                        <?= $baselineLabel ?>
                         </div>
                     </td>
                 </tr>
@@ -491,15 +577,21 @@ function updateRowButtons() {
 
 // ── Filter ────────────────────────────────────────────────────────────────────
 function filterTable() {
-    const q=document.getElementById('searchInput').value.toLowerCase(), swF=document.getElementById('switchFilter').value, typeF=document.getElementById('typeFilter').value;
+    const q=document.getElementById('searchInput').value.toLowerCase(),
+          swF=document.getElementById('switchFilter').value,
+          typeF=document.getElementById('typeFilter').value,
+          onlyDelta=document.getElementById('onlyDeltaFilter')?.checked;
     const rows=document.querySelectorAll('#tableBody tr'); let visible=0;
     rows.forEach(tr => {
         const rowKey=tr.dataset.rowkey||'';
         let show;
         if (showingHidden) { show=hiddenRows.has(rowKey); }
         else {
-            const matchQ=!q||tr.textContent.toLowerCase().includes(q), matchSw=!swF||tr.dataset.switch===swF, matchT=!typeF||(tr.dataset.types||'').includes(typeF);
-            show=matchQ&&matchSw&&matchT&&!hiddenRows.has(rowKey);
+            const matchQ=!q||tr.textContent.toLowerCase().includes(q),
+                  matchSw=!swF||tr.dataset.switch===swF,
+                  matchT=!typeF||(tr.dataset.types||'').includes(typeF),
+                  matchDelta=!onlyDelta||(tr.dataset.hasDelta==='true');
+            show=matchQ&&matchSw&&matchT&&matchDelta&&!hiddenRows.has(rowKey);
         }
         tr.style.display=show?'':'none'; if(show) visible++;
     });
@@ -527,6 +619,55 @@ document.addEventListener('DOMContentLoaded',function(){ loadHiddenRows(); updat
         });
     });
 });
+
+// ── Baseline Sıfırlama ────────────────────────────────────────────────────────
+async function resetBaseline(btn, switchId, portNumber) {
+    if (!confirm('Bu portun sayaçları yazılımsal olarak sıfırlanacak.\nBaseline oluşturulacak; bundan sonra sadece delta değerleri gösterilecek.\n\nDevam edilsin mi?')) return;
+    btn.disabled = true;
+    btn.classList.add('loading');
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sıfırlanıyor…';
+    try {
+        const res = await fetch('../api/reset_port_baseline.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({switch_id: switchId, port_number: portNumber})
+        });
+        const data = await res.json();
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Hata: ' + (data.error || 'Bilinmeyen hata'));
+            btn.disabled = false;
+            btn.classList.remove('loading');
+            btn.innerHTML = '<i class="fas fa-redo"></i> Sıfırla';
+        }
+    } catch(e) {
+        alert('Sunucu hatası. Lütfen tekrar deneyin.');
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.innerHTML = '<i class="fas fa-redo"></i> Sıfırla';
+    }
+}
+
+async function resetAllBaselines() {
+    const visibleRows = Array.from(document.querySelectorAll('#tableBody tr')).filter(tr => tr.style.display !== 'none');
+    if (visibleRows.length === 0) { alert('Görünür port yok.'); return; }
+    if (!confirm(`Görünürdeki ${visibleRows.length} portun tamamı için yazılımsal baseline oluşturulacak.\n\nDevam edilsin mi?`)) return;
+    const btn = document.getElementById('btnResetAll');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> İşleniyor…'; }
+    const promises = visibleRows.map(tr => {
+        const swId   = parseInt(tr.dataset.switchId);
+        const portNr = parseInt(tr.dataset.portNumber);
+        if (!swId || !portNr) return Promise.resolve();
+        return fetch('../api/reset_port_baseline.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({switch_id: swId, port_number: portNr})
+        }).catch(() => {});
+    });
+    await Promise.all(promises);
+    location.reload();
+}
 
 // ── Sort ──────────────────────────────────────────────────────────────────────
 let sortState = { col: -1, asc: true };
