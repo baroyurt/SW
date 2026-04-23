@@ -28,6 +28,7 @@ $sql = "
             + COALESCE(psd.out_discards,0) AS total_issues,
         sd.name        AS switch_name,
         sd.ip_address,
+        sd.model       AS sw_model,
         mdr.device_name AS conn_device,
         psd.poll_timestamp
     FROM port_status_data psd
@@ -275,6 +276,9 @@ sort($switchList);
                         <?= htmlspecialchars($row['switch_name'] ?? '-') ?>
                         <?php if (!empty($row['ip_address'])): ?>
                         <br><span style="color:var(--text-light);font-size:11px"><?= htmlspecialchars($row['ip_address']) ?></span>
+                        <?php endif; ?>
+                        <?php if (!empty($row['sw_model'])): ?>
+                        <br><span style="color:var(--text-light);font-size:11px;font-style:italic"><?= htmlspecialchars($row['sw_model']) ?></span>
                         <?php endif; ?>
                     </td>
                     <td><?= (int)$row['port_number'] ?></td>
