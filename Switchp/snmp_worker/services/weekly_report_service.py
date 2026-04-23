@@ -180,14 +180,14 @@ class WeeklyReportService:
                     pch.port_number,
                     COALESCE(psd.port_alias,'') AS alias,
                     psd.vlan_id,
-                    COUNT(*)            AS change_count,
-                    MIN(pch.changed_at) AS first_change,
-                    MAX(pch.changed_at) AS last_change
+                    COUNT(*)                    AS change_count,
+                    MIN(pch.change_timestamp)   AS first_change,
+                    MAX(pch.change_timestamp)   AS last_change
                 FROM port_change_history pch
                 JOIN snmp_devices sd ON sd.id = pch.device_id
                 LEFT JOIN port_status_data psd
                        ON psd.device_id = pch.device_id AND psd.port_number = pch.port_number
-                WHERE pch.changed_at >= :since
+                WHERE pch.change_timestamp >= :since
                 GROUP BY sd.name, sd.ip_address, pch.port_number, psd.port_alias, psd.vlan_id
                 HAVING COUNT(*) >= 3
                 ORDER BY COUNT(*) DESC, sd.name, pch.port_number
