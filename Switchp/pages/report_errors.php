@@ -80,7 +80,8 @@ sort($switchList);
 <title>Hata / Drop Analizi</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <style>
-    html { zoom: 0.95; }
+    html { zoom: 0.95; overflow-x:hidden; }
+    body { overflow-x:hidden; }
 
     /* Scrollbar — Dashboard ile aynı mavi stil */
     ::-webkit-scrollbar { width:10px; height:10px; }
@@ -101,7 +102,7 @@ sort($switchList);
         --border:       #334155;
     }
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background:var(--dark); color:var(--text); padding:20px; }
+    body { font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background:var(--dark); color:var(--text); padding:20px; overflow-x:hidden; }
     .container { max-width:1400px; margin:0 auto; }
 
     .header { background:var(--dark-light); padding:20px 24px; border-radius:12px; border:1px solid var(--border); margin-bottom:20px; display:flex; align-items:center; gap:16px; }
@@ -128,16 +129,16 @@ sort($switchList);
     select.filter-select { padding:8px 10px; background:var(--dark-light); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; outline:none; cursor:pointer; }
     select.filter-select:focus { border-color:var(--primary); }
 
-    .table-wrap { background:var(--dark-light); border-radius:12px; border:1px solid var(--border); overflow-x:auto; }
-    table { width:100%; border-collapse:collapse; min-width:1100px; }
-    thead th { background:#2d1f07; padding:11px 14px; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-light); text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; cursor:pointer; user-select:none; }
+    .table-wrap { background:var(--dark-light); border-radius:12px; border:1px solid var(--border); overflow:hidden; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; }
+    thead th { background:#2d1f07; padding:9px 8px; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-light); text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; cursor:pointer; user-select:none; overflow:hidden; text-overflow:ellipsis; }
     thead th:hover { color:var(--warning); }
     thead th .sort-icon { margin-left:4px; opacity:0.4; font-size:10px; }
     thead th.sorted .sort-icon { opacity:1; color:var(--warning); }
     tbody tr { border-bottom:1px solid #1e2a3a; transition:background 0.15s; }
     tbody tr:last-child { border-bottom:none; }
     tbody tr:hover { background:#211a0a; }
-    tbody td { padding:10px 14px; font-size:13px; }
+    tbody td { padding:8px 8px; font-size:12px; overflow:hidden; text-overflow:ellipsis; }
 
     .val-err  { color:var(--danger);  font-weight:700; }
     .val-warn { color:var(--warning); font-weight:700; }
@@ -282,19 +283,19 @@ sort($switchList);
         <table id="errTable">
             <thead>
                 <tr>
-                    <th onclick="sortTable(0)">Switch <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(1)">Port <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(2)">Cihaz / Alias <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(3)">VLAN <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(4)">Durum <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(5)" title="Gelen Hata">↓ Hata <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(6)" title="Giden Hata">↑ Hata <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(7)" title="Output Drop (CLI Total output drops)">↑ Drop <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(8)">Toplam <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(9)" title="Trafik: Gelen / Giden bayt">Trafik ↓/↑ <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(10)" title="Fiziksel katman (kablo/SFP/port) sağlık analizi">Fiziksel Katman <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(11)">Son Poll <span class="sort-icon fas fa-sort"></span></th>
-                    <th style="width:110px;min-width:110px"></th>
+                    <th onclick="sortTable(0)" style="width:12%">Switch <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(1)" style="width:5%">Port <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(2)" style="width:10%">Cihaz / Alias <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(3)" style="width:5%">VLAN <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(4)" style="width:6%">Durum <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(5)" style="width:6%" title="Gelen Hata">↓ Hata <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(6)" style="width:6%" title="Giden Hata">↑ Hata <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(7)" style="width:6%" title="Output Drop (CLI Total output drops)">↑ Drop <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(8)" style="width:9%">Toplam <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(9)" style="width:9%" title="Trafik: Gelen / Giden bayt">Trafik ↓/↑ <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(10)" style="width:10%" title="Fiziksel katman (kablo/SFP/port) sağlık analizi">Fiziksel Katman <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(11)" style="width:8%">Son Poll <span class="sort-icon fas fa-sort"></span></th>
+                    <th style="width:8%"></th>
                 </tr>
             </thead>
             <tbody id="tableBody">
@@ -415,7 +416,7 @@ sort($switchList);
                     </td>
                     <td><?= $physLabel ?></td>
                     <td style="color:var(--text-light);font-size:11px"><?= $ts ?></td>
-                    <td style="padding-right:10px;min-width:110px">
+                    <td style="padding-right:6px">
                         <div class="action-cell">
                         <button class="btn-goto-port" onclick="gotoPort(<?= htmlspecialchars(json_encode($row['switch_name']), ENT_QUOTES) ?>,<?= (int)$row['port_number'] ?>)" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
                         <button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
