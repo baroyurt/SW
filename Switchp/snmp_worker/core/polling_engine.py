@@ -141,6 +141,22 @@ class DevicePoller:
         # data was used this cycle; save_to_database uses it to skip stale writes.
         self._port_last_poll: Optional[datetime] = None
         self._port_cache: List[Any] = []
+
+        # Per-port counter cache for delta computation.
+        # SNMP error/discard counters (ifInErrors, ifOutErrors, ifOutDiscards)
+        # are cumulative since device boot.  Storing the raw absolute value is
+        # misleading in the error report (can reach billions over months) and is
+        # not reset by `clear counters` on the switch CLI.
+        # Instead we store the *delta* (increment since the previous poll) so
+        # the report shows "errors/drops in the last poll interval", which:
+        #   - shows a small, actionable number (rate, not lifetime total)
+        #   - naturally drops to 0 when the underlying problem is resolved,
+        #     removing the port from the report automatically
+        #   - is unaffected by CLI `clear counters` since SNMP HW counters
+        #     do not reset on `clear counters`
+        # Key: port_number (int)
+        # Value: dict mapping field name → last raw SNMP counter value
+        self._counter_cache: Dict[int, Dict[str, int]] = {}
         
         # Setup logger with device context
         base_logger = logging.getLogger('snmp_worker.poller')
@@ -191,6 +207,51 @@ class DevicePoller:
         
         return SNMPClient(**kwargs)
     
+    # Counter fields that are tracked as per-poll deltas instead of
+    # cumulative absolute SNMP values.  ifInDiscards is intentionally
+    # excluded -- the error report no longer shows it; only ifOutDiscards
+    # (mapped to CLI "Total output drops") is relevant.
+    _DELTA_COUNTER_FIELDS: tuple = ('in_errors', 'out_errors', 'out_discards')
+
+    def _compute_counter_deltas(self, port_number: int,
+                                 raw: Dict[str, int]) -> Dict[str, int]:
+        """Return per-poll increment for tracked counter fields.
+
+        SNMP ifInErrors / ifOutErrors / ifOutDiscards are monotonically
+        increasing hardware counters that are NOT reset by the CLI
+        ``clear counters`` command.  Storing the raw absolute value leads to
+        misleading multi-billion numbers in the error report and is
+        unactionable.  Storing the *delta* (this poll minus previous poll)
+        gives the count of errors/drops in the last poll interval, which:
+          * shows a small, actionable number matching CLI "Total output drops"
+            rate between polls
+          * drops to zero once the underlying problem is resolved (the port
+            disappears from the error report automatically)
+          * is unaffected by ``clear counters``
+
+        On the first poll for a port (no cached baseline) the delta is 0 to
+        avoid reporting the entire lifetime counter as a single event.
+
+        A negative delta (counter wrapped at 2^32 or device rebooted) is
+        clamped to 0; the next poll will show the correct increment from the
+        new baseline.
+        """
+        prev = self._counter_cache.get(port_number, {})
+        result: Dict[str, int] = {}
+        for field in self._DELTA_COUNTER_FIELDS:
+            new_val = raw.get(field, 0) or 0
+            if field not in prev:
+                # First time we see this port: no baseline yet, report 0
+                result[field] = 0
+            else:
+                delta = new_val - (prev[field] or 0)
+                result[field] = max(0, delta)
+        # Update cache with raw absolute values for next delta computation
+        self._counter_cache[port_number] = {
+            f: raw.get(f, 0) or 0 for f in self._DELTA_COUNTER_FIELDS
+        }
+        return result
+
     def poll(self) -> Dict[str, Any]:
         """
         Poll device and return results.
@@ -733,6 +794,18 @@ class DevicePoller:
                         admin_status = _status_map.get(port.admin_status, PortStatus.DOWN)
                         oper_status  = _status_map.get(port.oper_status,  PortStatus.UNKNOWN)
                         
+                        # Compute per-poll deltas for error/discard counters before saving.
+                        # SNMP counters are cumulative since boot; storing deltas gives
+                        # the number of errors/drops in the last poll interval, which
+                        # is meaningful in the error report (small actionable number)
+                        # and is not affected by the CLI 'clear counters' command.
+                        _raw = {
+                            'in_errors':   port.in_errors   or 0,
+                            'out_errors':  port.out_errors  or 0,
+                            'out_discards': port.out_discards or 0,
+                        }
+                        _deltas = self._compute_counter_deltas(port.port_number, _raw)
+                        
                         # Save port status
                         all_macs = getattr(port, '_all_macs', None)
                         port_status_data = self.db_manager.save_port_status(
@@ -751,10 +824,10 @@ class DevicePoller:
                             vlan_id=port.vlan_id,
                             in_octets=port.in_octets,
                             out_octets=port.out_octets,
-                            in_errors=port.in_errors,
-                            out_errors=port.out_errors,
+                            in_errors=_deltas['in_errors'],
+                            out_errors=_deltas['out_errors'],
                             in_discards=port.in_discards,
-                            out_discards=port.out_discards,
+                            out_discards=_deltas['out_discards'],
                             poe_detecting=port.poe_detecting,
                             poe_power_mw=port.poe_power_mw,
                             poe_class=port.poe_class,
