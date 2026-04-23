@@ -120,8 +120,8 @@ sort($switchList);
     select.filter-select { padding:8px 10px; background:var(--dark-light); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; outline:none; cursor:pointer; }
     select.filter-select:focus { border-color:var(--primary); }
 
-    .table-wrap { background:var(--dark-light); border-radius:12px; border:1px solid var(--border); overflow:hidden; }
-    table { width:100%; border-collapse:collapse; }
+    .table-wrap { background:var(--dark-light); border-radius:12px; border:1px solid var(--border); overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; min-width:1100px; }
     thead th { background:#2d1f07; padding:11px 14px; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-light); text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; cursor:pointer; user-select:none; }
     thead th:hover { color:var(--warning); }
     thead th .sort-icon { margin-left:4px; opacity:0.4; font-size:10px; }
@@ -177,7 +177,7 @@ sort($switchList);
     /* Hover-tooltip wrapper */
     .tooltip-wrap { position:relative; display:inline-block; cursor:help; }
     .tooltip-wrap .tt-box {
-        display:none; position:absolute; z-index:9999; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%);
+        display:none; position:fixed; z-index:99999;
         min-width:280px; background:#0f172a; border:1px solid #334155; border-radius:10px;
         padding:12px 14px; box-shadow:0 8px 24px rgba(0,0,0,0.6); text-align:left; pointer-events:none;
     }
@@ -285,7 +285,7 @@ sort($switchList);
                     <th onclick="sortTable(9)" title="Trafik: Gelen / Giden bayt">Trafik ↓/↑ <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(10)" title="Fiziksel katman (kablo/SFP/port) sağlık analizi">Fiziksel Katman <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(11)">Son Poll <span class="sort-icon fas fa-sort"></span></th>
-                    <th style="width:160px"></th>
+                    <th style="width:180px;min-width:180px"></th>
                 </tr>
             </thead>
             <tbody id="tableBody">
@@ -406,7 +406,7 @@ sort($switchList);
                     </td>
                     <td><?= $physLabel ?></td>
                     <td style="color:var(--text-light);font-size:11px"><?= $ts ?></td>
-                    <td style="text-align:right;white-space:nowrap;padding-right:10px">
+                    <td style="text-align:right;white-space:nowrap;padding-right:14px;min-width:180px">
                         <button class="btn-goto-port" onclick="gotoPort(<?= htmlspecialchars(json_encode($row['switch_name']), ENT_QUOTES) ?>,<?= (int)$row['port_number'] ?>)" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
                         <button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
                     </td>
@@ -496,7 +496,26 @@ function filterTable() {
     if (rc) rc.innerHTML=showingHidden?`<strong>${visible}</strong> gizli kayıt listeleniyor.`:`<strong>${visible}</strong> port gösteriliyor.`;
 }
 
-document.addEventListener('DOMContentLoaded',function(){ loadHiddenRows(); updateHideBtn(); updateRowButtons(); });
+document.addEventListener('DOMContentLoaded',function(){ loadHiddenRows(); updateHideBtn(); updateRowButtons();
+
+    // Tooltip positioning: position fixed tooltip relative to mouse to avoid overflow
+    document.querySelectorAll('.tooltip-wrap').forEach(function(wrap) {
+        var box = wrap.querySelector('.tt-box');
+        if (!box) return;
+        wrap.addEventListener('mouseenter', function(e) {
+            var rect = wrap.getBoundingClientRect();
+            var vpW = window.innerWidth, vpH = window.innerHeight;
+            var boxW = 290, boxH = 200; // estimated
+            var top = rect.top - boxH - 8;
+            var left = rect.left + rect.width / 2 - boxW / 2;
+            if (top < 8) top = rect.bottom + 8;
+            if (left < 8) left = 8;
+            if (left + boxW > vpW - 8) left = vpW - boxW - 8;
+            box.style.top  = top  + 'px';
+            box.style.left = left + 'px';
+        });
+    });
+});
 
 // ── Sort ──────────────────────────────────────────────────────────────────────
 let sortState = { col: -1, asc: true };
