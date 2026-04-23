@@ -1049,8 +1049,10 @@ function closeDlModal() {
     document.getElementById('dlPassword').value = '';
     document.getElementById('dlPasswordError').style.display = 'none';
 }
-document.getElementById('dlPasswordModal').addEventListener('click', function(e) { if (e.target === this) closeDlModal(); });
-document.getElementById('dlPassword').addEventListener('keydown', function(e) { if (e.key === 'Enter') confirmDownload(); });
+const _dlModal = document.getElementById('dlPasswordModal');
+const _dlInput = document.getElementById('dlPassword');
+if (_dlModal) _dlModal.addEventListener('click', function(e) { if (e.target === this) closeDlModal(); });
+if (_dlInput) _dlInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') confirmDownload(); });
 
 async function confirmDownload() {
     const password = document.getElementById('dlPassword').value;
