@@ -142,16 +142,75 @@ function getSmtpConfig() {
 }
 
 /**
+ * Get the list of recipient email addresses for a given mail type.
+ * Queries alarm_user_email_config for per-user settings; falls back to global to_addresses.
+ *
+ * @param string $mailType  e.g. 'excel_export', 'mac_history_cleanup'
+ * @return array  Email address strings, or empty array if none configured
+ */
+function getMailTypeRecipients(string $mailType): array {
+    global $conn;
+    try {
+        // Table may not exist yet — create it if missing
+        $conn->query(
+            "IF OBJECT_ID('dbo.alarm_user_email_config','U') IS NULL BEGIN " .
+            "CREATE TABLE alarm_user_email_config (" .
+            "alarm_type VARCHAR(100) NOT NULL, user_id INT NOT NULL, email_enabled BIT NOT NULL DEFAULT 1, " .
+            "CONSTRAINT PK_alarm_user_email_config PRIMARY KEY (alarm_type, user_id)" .
+            ") END"
+        );
+        // Check whether any per-type rows exist for this mail type
+        $chk = $conn->prepare(
+            "SELECT COUNT(*) AS cnt FROM alarm_user_email_config WHERE alarm_type = ?"
+        );
+        $chk->bind_param('s', $mailType);
+        $chk->execute();
+        $row = $chk->get_result()->fetch_assoc();
+        $chk->close();
+        if ((int)($row['cnt'] ?? 0) === 0) {
+            // No per-type config — fall back to global SMTP to_addresses
+            $cfg = getSmtpConfig();
+            return $cfg ? $cfg['to_addresses'] : [];
+        }
+        // Return emails of users opted-in for this mail type
+        $stmt = $conn->prepare(
+            "SELECT u.email FROM alarm_user_email_config auc " .
+            "JOIN users u ON u.id = auc.user_id " .
+            "WHERE auc.alarm_type = ? AND auc.email_enabled = 1 " .
+            "AND u.is_active = 1 AND u.email IS NOT NULL AND LEN(LTRIM(u.email)) > 0"
+        );
+        $stmt->bind_param('s', $mailType);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $emails = [];
+        while ($r = $result->fetch_assoc()) {
+            $emails[] = $r['email'];
+        }
+        $stmt->close();
+        return $emails;
+    } catch (\Throwable $e) {
+        // On any error fall back to global list
+        $cfg = getSmtpConfig();
+        return $cfg ? $cfg['to_addresses'] : [];
+    }
+}
+
+/**
  * Send an alarm email via SMTP (sync, blocking).
  * Uses fsockopen for port 465 (SSL) or stream_socket_client + STARTTLS for port 587.
  *
  * @param string $subject
  * @param string $htmlBody
+ * @param array|null $recipients  Optional override recipient list; defaults to global to_addresses
  * @return bool
  */
-function sendAlarmEmail(string $subject, string $htmlBody): bool {
+function sendAlarmEmail(string $subject, string $htmlBody, array $recipients = null): bool {
     $cfg = getSmtpConfig();
     if (!$cfg) return false;
+    if ($recipients !== null) {
+        $cfg['to_addresses'] = $recipients;
+    }
+    if (empty($cfg['to_addresses'])) return false;
 
     $boundary = md5(uniqid());
     $plainBody = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $htmlBody));
@@ -882,9 +941,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Dosya adı:</strong> " . htmlspecialchars($filename) . "</p>"
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Kayıt sayısı:</strong> <span style='color:#d4a017;font-weight:700;'>{$recordCount}</span></p>";
                 $body = chamada_email_template('Excel Export Bildirimi', $dlContent, $downloadedBy, $dlFullName, $dlClientIp);
-                $emailSuccess = sendAlarmEmail($subj, $body);
-                $cfg = getSmtpConfig();
-                if ($cfg) logEmailSent($subj, $cfg['to_addresses'] ?? [], 'excel_export', $emailSuccess);
+                $excelRecipients = getMailTypeRecipients('excel_export');
+                $emailSuccess = sendAlarmEmail($subj, $body, $excelRecipients ?: null);
+                logEmailSent($subj, $excelRecipients, 'excel_export', $emailSuccess);
             }
 
             header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

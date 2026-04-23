@@ -671,6 +671,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         case 'get_alarm_severities':
             // Get alarm severity configuration from database
             try {
+                // Ensure PHP notification types are seeded (they are not managed by Python worker)
+                $phpNotifTypes = [
+                    ['excel_export',       'LOW', 0, 1, 'Excel export bildirimi'],
+                    ['mac_history_cleanup','LOW', 0, 1, 'MAC geçmiş silme bildirimi'],
+                ];
+                foreach ($phpNotifTypes as [$nt, $sev, $tg, $em, $desc]) {
+                    $conn->query(
+                        "IF NOT EXISTS (SELECT 1 FROM alarm_severity_config WHERE alarm_type='$nt') " .
+                        "INSERT INTO alarm_severity_config (alarm_type, severity, telegram_enabled, email_enabled, description) " .
+                        "VALUES ('$nt', '$sev', $tg, $em, '$desc')"
+                    );
+                }
                 $stmt = $conn->prepare("SELECT alarm_type, severity, telegram_enabled, email_enabled, description FROM alarm_severity_config ORDER BY CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 WHEN 'LOW' THEN 4 ELSE 5 END, alarm_type");
                 $stmt->execute();
                 $result = $stmt->get_result();
@@ -2289,9 +2301,13 @@ if (!$config) {
                 <i class="fas fa-users" style="color:#10b981;"></i>
                 <span id="recipientsModalTitle">Email Alıcıları</span>
             </h2>
-            <p style="color:#94a3b8;font-size:13px;margin:4px 0 16px;">
+            <p style="color:#94a3b8;font-size:13px;margin:4px 0 4px;">
                 Bu alarm tipi için hangi kullanıcıların e-posta alacağını ayarlayın.
                 Email kanalı kapalıysa bu ayarların bir önemi yoktur.
+            </p>
+            <p style="color:#64748b;font-size:12px;margin:0 0 16px;">
+                <i class="fas fa-info-circle" style="color:#3b82f6;margin-right:4px;"></i>
+                Listede kullanıcı görünmüyorsa <a href="../pages/admin.php" target="_blank" style="color:#3b82f6;">Kullanıcı Yönetimi</a> sayfasından kullanıcıya e-posta adresi ekleyin.
             </p>
             <div id="recipientsList" style="max-height:360px;overflow-y:auto;"></div>
             <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end;">
@@ -2986,7 +3002,13 @@ if (!$config) {
                 'vlan_changed': 'VLAN Değişti',
                 'description_changed': 'Açıklama Değişti',
                 'mac_added': 'MAC Eklendi',
-                'snmp_error': 'SNMP Hatası'
+                'snmp_error': 'SNMP Hatası',
+                'high_temperature': 'Yüksek Sıcaklık',
+                'fan_failure': 'Fan Arızası',
+                'high_cpu': 'Yüksek CPU',
+                // PHP notification types
+                'excel_export': 'Excel Export Bildirimi',
+                'mac_history_cleanup': 'MAC Geçmiş Silme',
             };
             return types[alarmType] || alarmType;
         }
