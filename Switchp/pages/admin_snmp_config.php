@@ -740,13 +740,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     echo json_encode(['success' => false, 'error' => 'Alarm tipi gerekli']);
                     break;
                 }
+                // Ensure the config table exists before LEFT JOINing it
+                $conn->query(
+                    "IF OBJECT_ID('dbo.alarm_user_email_config','U') IS NULL BEGIN " .
+                    "CREATE TABLE alarm_user_email_config (" .
+                    "alarm_type VARCHAR(100) NOT NULL, user_id INT NOT NULL, email_enabled BIT NOT NULL DEFAULT 1, " .
+                    "CONSTRAINT PK_alarm_user_email_config PRIMARY KEY (alarm_type, user_id)" .
+                    ") END"
+                );
                 // Get all active users with their per-alarm email setting
                 $stmt = $conn->prepare(
                     "SELECT u.id, u.username, u.full_name, u.email, " .
                     "COALESCE(auc.email_enabled, 1) AS email_enabled " .
                     "FROM users u " .
                     "LEFT JOIN alarm_user_email_config auc ON auc.user_id = u.id AND auc.alarm_type = ? " .
-                    "WHERE u.is_active = 1 AND u.email IS NOT NULL AND u.email != '' " .
+                    "WHERE u.is_active = 1 AND u.email IS NOT NULL AND LEN(LTRIM(u.email)) > 0 " .
                     "ORDER BY u.id ASC"
                 );
                 $stmt->bind_param('s', $alarm_type);
