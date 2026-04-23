@@ -331,6 +331,8 @@ try {
     $ifAdminStatus = $ifOperStatus = 0;
     $ifLastChange  = $dot3Duplex   = null;
     $dot1qPvid     = $vmVlan       = 0;
+    $inOctets = $outOctets = $inUcast = $outUcast = 0;
+    $inErrors = $outErrors = $inDiscards = $outDiscards = $fcsErrors = 0;
 
     if (!$snmpFailed) {
         $ifName        = parseSnmpValue(@$snmp->get("1.3.6.1.2.1.31.1.1.1.1.$i"));
@@ -388,6 +390,8 @@ try {
             $outOctets     = intval($dbRow['out_octets'] ?? $dbRow['bytes_out'] ?? 0);
             $inErrors      = intval($dbRow['in_errors']  ?? $dbRow['errors_in'] ?? 0);
             $outErrors     = intval($dbRow['out_errors'] ?? $dbRow['errors_out'] ?? 0);
+            $inDiscards    = intval($dbRow['in_discards']  ?? 0);
+            $outDiscards   = intval($dbRow['out_discards'] ?? 0);
         } elseif (empty($ifAlias) && !empty($dbRow['port_alias'])) {
             // SNMP succeeded but returned empty ifAlias — use the DB-cached alias
             // (the Python worker stores port_alias from a regular SNMP walk).
@@ -584,8 +588,8 @@ try {
         $outDiscards = intval(@$snmp->get("1.3.6.1.2.1.2.2.1.19.$i"));
         $fcsErrors   = intval(@$snmp->get("1.3.6.1.2.1.10.7.2.1.2.$i"));
     } else {
-        // Values already loaded from DB above; set remaining to 0
-        $inUcast = $outUcast = $inDiscards = $outDiscards = $fcsErrors = 0;
+        // Values already loaded from DB above; only zero out counters not in DB
+        $inUcast = $outUcast = $fcsErrors = 0;
     }
 
     // ── LLDP (neighbor) — only query via SNMP when SNMP is working
@@ -754,11 +758,36 @@ try {
         }
     }
 
+    // ── Look up connected device hostname from mac_device_registry ─────────────
+    $connDeviceName = '';
+    $connDeviceIp   = '';
+    $lookupMac = !empty($dbRow['mac_address']) ? $dbRow['mac_address'] : $ifPhysAddress;
+    if (!empty($lookupMac)) {
+        $cleanLookupMac = strtoupper(preg_replace('/[^a-fA-F0-9]/', '', $lookupMac));
+        if (strlen($cleanLookupMac) === 12) {
+            $macLookup = $conn->prepare(
+                "SELECT device_name, ip_address FROM mac_device_registry
+                 WHERE UPPER(REPLACE(REPLACE(REPLACE(mac_address,':',''),'-',''),' ','')) = ?
+                 LIMIT 1"
+            );
+            $macLookup->bind_param('s', $cleanLookupMac);
+            $macLookup->execute();
+            $macLookupRow = $macLookup->get_result()->fetch_assoc();
+            $macLookup->close();
+            if ($macLookupRow) {
+                $connDeviceName = trim($macLookupRow['device_name'] ?? '');
+                $connDeviceIp   = trim($macLookupRow['ip_address']  ?? '');
+            }
+        }
+    }
+
     $result = [
         'success' => true,
         'switch_name' => $sw['name'],
         'port' => $i,
         'source' => $snmpFailed ? 'database' : 'snmp',
+        'conn_device_name' => $connDeviceName,
+        'conn_device_ip'   => $connDeviceIp,
         'temel' => [
             'descr'   => $ifDescr ?: ($isModernCatalyst ? "GigabitEthernet1/0/$portNum" : "GE$portNum"),
             'name'    => $ifName  ?: ($isModernCatalyst ? "Gi1/0/$portNum" : "GE$portNum"),

@@ -397,7 +397,7 @@ function sortTable(col) {
     const tbody=document.getElementById('tableBody'); if(!tbody) return;
     const rows=Array.from(tbody.querySelectorAll('tr')), asc=(sortState.col===col)?!sortState.asc:true;
     sortState={col,asc};
-    rows.sort((a,b)=>{ const va=a.querySelectorAll('td')[col]?.textContent.trim().replace(/,/g,'')??\'\', vb=b.querySelectorAll('td')[col]?.textContent.trim().replace(/,/g,'')??\'\'; const na=parseFloat(va),nb=parseFloat(vb), cmp=(!isNaN(na)&&!isNaN(nb))?na-nb:va.localeCompare(vb,'tr'); return asc?cmp:-cmp; });
+    rows.sort((a,b)=>{ const va=a.querySelectorAll('td')[col]?.textContent.trim().replace(/,/g,'')||'', vb=b.querySelectorAll('td')[col]?.textContent.trim().replace(/,/g,'')||''; const na=parseFloat(va),nb=parseFloat(vb), cmp=(!isNaN(na)&&!isNaN(nb))?na-nb:va.localeCompare(vb,'tr'); return asc?cmp:-cmp; });
     rows.forEach(r=>tbody.appendChild(r));
     document.querySelectorAll('thead th').forEach((th,i)=>{ th.classList.toggle('sorted',i===col); const icon=th.querySelector('.sort-icon'); if(icon) icon.className='sort-icon fas '+(i!==col?'fa-sort':asc?'fa-sort-up':'fa-sort-down'); });
 }

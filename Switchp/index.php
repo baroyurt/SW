@@ -8722,19 +8722,22 @@ if (isHub) {
                             arr.slice(0, 6).forEach((it, idx) => {
                                 const rawName = (it.device || it.name || '').trim();
                                 const isGeneric = rawName === '' || /^Cihaz\s+\d+$/i.test(rawName);
-                                // Use IP as hostname when no real name stored
-                                const displayName = isGeneric
+                                // Prefer registry device_name from API over generic placeholder
+                                const apiName = (isGeneric && d.conn_device_name) ? d.conn_device_name : '';
+                                const displayName = apiName || (isGeneric
                                     ? (it.ip || it.mac || rawName || `Cihaz ${idx+1}`)
-                                    : rawName;
+                                    : rawName);
+                                const isResolved = !!(apiName || !isGeneric);
                                 // Suppress MAC: field when it equals the display name (avoids duplication)
                                 const macUpper  = it.mac ? it.mac.toUpperCase() : '';
                                 const nameUpper = displayName.toUpperCase();
                                 const macIsSameName = macUpper && macUpper === nameUpper;
                                 connRows += `<div class="snmp-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;">`;
-                                connRows += `<span class="snmp-value" style="font-size:0.82rem;color:${isGeneric?'#94a3b8':'#e2e8f0'};">${escapeHtml(displayName)}</span>`;
-                                if (it.ip) {
-                                    connRows += `<span style="font-family:monospace;font-size:0.78rem;color:#7dd3fc;">IP: ${escapeHtml(it.ip)}</span>`;
-                                } else if (!isGeneric) {
+                                connRows += `<span class="snmp-value" style="font-size:0.82rem;color:${isResolved?'#e2e8f0':'#94a3b8'};">${escapeHtml(displayName)}</span>`;
+                                const displayIp = it.ip || (d.conn_device_ip && idx === 0 ? d.conn_device_ip : '');
+                                if (displayIp) {
+                                    connRows += `<span style="font-family:monospace;font-size:0.78rem;color:#7dd3fc;">IP: ${escapeHtml(displayIp)}</span>`;
+                                } else if (isResolved) {
                                     // Named device with no IP → show placeholder so layout matches devices that have IPs
                                     connRows += `<span style="font-family:monospace;font-size:0.78rem;color:var(--text-light);">IP: —</span>`;
                                 }
@@ -8745,10 +8748,12 @@ if (isHub) {
                     } catch(e) { /* ignore */ }
                 }
                 if (!connRows) {
-                    if (connDevice) connRows += `<div class="snmp-row"><span class="snmp-label">Hostname</span><span class="snmp-value">${escapeHtml(connDevice)}</span></div>`;
-                    if (connIp)     connRows += `<div class="snmp-row"><span class="snmp-label">IP</span><span class="snmp-value" style="font-family:monospace">${escapeHtml(connIp.split(',')[0].trim())}</span></div>`;
-                    else if (connDevice) connRows += `<div class="snmp-row"><span class="snmp-label">IP</span><span class="snmp-value" style="font-family:monospace;color:var(--text-light);">—</span></div>`;
-                    if (connMac)    connRows += `<div class="snmp-row"><span class="snmp-label">MAC</span><span class="snmp-value" style="font-family:monospace;font-size:0.8rem">${escapeHtml(connMac.split(',')[0].trim())}</span></div>`;
+                    const hostname = connDevice || d.conn_device_name || '';
+                    const ip       = connIp || d.conn_device_ip || '';
+                    if (hostname) connRows += `<div class="snmp-row"><span class="snmp-label">Hostname</span><span class="snmp-value">${escapeHtml(hostname)}</span></div>`;
+                    if (ip)       connRows += `<div class="snmp-row"><span class="snmp-label">IP</span><span class="snmp-value" style="font-family:monospace">${escapeHtml(ip.split(',')[0].trim())}</span></div>`;
+                    else if (hostname) connRows += `<div class="snmp-row"><span class="snmp-label">IP</span><span class="snmp-value" style="font-family:monospace;color:var(--text-light);">—</span></div>`;
+                    if (connMac)  connRows += `<div class="snmp-row"><span class="snmp-label">MAC</span><span class="snmp-value" style="font-family:monospace;font-size:0.8rem">${escapeHtml(connMac.split(',')[0].trim())}</span></div>`;
                 }
 
                 // Build side-by-side section: Panel Detayı (left) + Mevcut Bağlantı (right)

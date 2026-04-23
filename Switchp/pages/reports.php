@@ -498,6 +498,17 @@ function formatSpeed(int $bps): string {
             .stats-bar { grid-template-columns: repeat(2,1fr); }
             .panel-native { padding: 14px; }
         }
+
+        /* Download password modal */
+        .dl-modal { display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(5px); justify-content:center; align-items:center; }
+        .dl-modal.show { display:flex; }
+        .dl-modal-content { background:var(--dark-light); padding:30px; border-radius:15px; width:90%; max-width:420px; box-shadow:0 10px 30px rgba(0,0,0,0.5); }
+        .dl-modal-title { font-size:17px; font-weight:bold; color:var(--text); margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+        .dl-modal-body { color:var(--text-light); font-size:13px; margin-bottom:18px; line-height:1.5; }
+        .dl-modal-input { width:100%; padding:9px 12px; background:var(--dark); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; box-sizing:border-box; margin-bottom:6px; }
+        .dl-modal-input:focus { outline:none; border-color:#0ea5e9; }
+        .dl-modal-error { font-size:12px; color:#f87171; display:none; margin-bottom:16px; }
+        .dl-modal-actions { display:flex; gap:10px; justify-content:flex-end; }
     </style>
 </head>
 <body>
@@ -611,7 +622,7 @@ function formatSpeed(int $bps): string {
             <button class="btn btn-secondary" id="btn100Toggle" onclick="toggleHiddenView()" disabled title="Gizlenen satırları listele">
                 <i class="fas fa-eye" id="btn100Icon"></i> <span id="btn100Label">Gizlileri Göster (0)</span>
             </button>
-            <button class="btn btn-secondary" onclick="exportXLSX()">
+            <button class="btn btn-secondary" onclick="openDlModal()">
                 <i class="fas fa-file-excel"></i> Excel
             </button>
         </div>
@@ -733,7 +744,7 @@ function formatSpeed(int $bps): string {
             <div class="spinner"></div>
             <span>Yükleniyor…</span>
         </div>
-        <iframe id="portInlineFrame" onload="onPortInlineLoad()"></iframe>
+        <iframe id="portInlineFrame" onload="if(typeof onPortInlineLoad==='function')onPortInlineLoad()"></iframe>
     </div>
 </div>
 
@@ -1025,6 +1036,69 @@ function closePortInline() {
     panel.classList.remove('visible');
     frame.src = 'about:blank';
 }
+
+// ── Download password modal ───────────────────────────────────────────────────
+function openDlModal() {
+    document.getElementById('dlPassword').value = '';
+    document.getElementById('dlPasswordError').style.display = 'none';
+    document.getElementById('dlPasswordModal').classList.add('show');
+    setTimeout(() => document.getElementById('dlPassword').focus(), 50);
+}
+function closeDlModal() {
+    document.getElementById('dlPasswordModal').classList.remove('show');
+    document.getElementById('dlPassword').value = '';
+    document.getElementById('dlPasswordError').style.display = 'none';
+}
+document.getElementById('dlPasswordModal').addEventListener('click', function(e) { if (e.target === this) closeDlModal(); });
+document.getElementById('dlPassword').addEventListener('keydown', function(e) { if (e.key === 'Enter') confirmDownload(); });
+
+async function confirmDownload() {
+    const password = document.getElementById('dlPassword').value;
+    const errEl    = document.getElementById('dlPasswordError');
+    const btn      = document.getElementById('dlConfirmBtn');
+    if (!password) { errEl.textContent = 'Şifre boş olamaz.'; errEl.style.display = 'block'; document.getElementById('dlPassword').focus(); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Doğrulanıyor…';
+    errEl.style.display = 'none';
+    try {
+        const res  = await fetch('../api/export_excel.php?type=switches', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password}) });
+        const data = await res.json();
+        if (!data.success) {
+            errEl.textContent = data.error || 'Şifre hatalı.';
+            errEl.style.display = 'block';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-file-excel"></i> İndir';
+            document.getElementById('dlPassword').focus();
+            document.getElementById('dlPassword').select();
+            return;
+        }
+        closeDlModal();
+        exportXLSX();
+    } catch(e) {
+        errEl.textContent = 'Sunucu hatası. Lütfen tekrar deneyin.';
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-file-excel"></i> İndir';
+    }
+}
 </script>
+
+<!-- Download password modal -->
+<div id="dlPasswordModal" class="dl-modal">
+    <div class="dl-modal-content">
+        <div class="dl-modal-title"><i class="fas fa-lock" style="color:#0ea5e9;"></i> İndirme Onayı</div>
+        <div class="dl-modal-body">Excel dosyasını indirmek için şifrenizi girin.</div>
+        <input type="password" id="dlPassword" class="dl-modal-input" placeholder="Şifreniz…" autocomplete="current-password">
+        <div class="dl-modal-error" id="dlPasswordError">Şifre hatalı. Lütfen tekrar deneyin.</div>
+        <div class="dl-modal-actions">
+            <button onclick="closeDlModal()" style="padding:9px 20px;border:1px solid var(--border);background:transparent;color:var(--text-light);border-radius:8px;cursor:pointer;font-size:14px;">
+                <i class="fas fa-times"></i> İptal
+            </button>
+            <button id="dlConfirmBtn" onclick="confirmDownload()" style="padding:9px 20px;background:#0ea5e9;color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">
+                <i class="fas fa-file-excel"></i> İndir
+            </button>
+        </div>
+    </div>
+</div>
 </body>
 </html>
