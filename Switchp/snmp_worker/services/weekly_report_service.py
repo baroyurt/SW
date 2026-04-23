@@ -199,7 +199,7 @@ class WeeklyReportService:
             return []
 
     def _query_errors(self, session) -> List[Dict[str, Any]]:
-        """Ports with non-zero in/out errors or discards."""
+        """Ports with non-zero in/out errors or output discards (= CLI Total output drops)."""
         try:
             result = session.execute(text("""
                 SELECT
@@ -211,15 +211,13 @@ class WeeklyReportService:
                     psd.oper_status,
                     COALESCE(psd.in_errors,   0) AS in_errors,
                     COALESCE(psd.out_errors,  0) AS out_errors,
-                    COALESCE(psd.in_discards, 0) AS in_discards,
                     COALESCE(psd.out_discards,0) AS out_discards,
                     COALESCE(psd.in_errors,0)+COALESCE(psd.out_errors,0)
-                        +COALESCE(psd.in_discards,0)+COALESCE(psd.out_discards,0) AS total_issues
+                        +COALESCE(psd.out_discards,0) AS total_issues
                 FROM port_status_data psd
                 JOIN snmp_devices sd ON sd.id = psd.device_id
                 WHERE (COALESCE(psd.in_errors,0)   > 0
                     OR COALESCE(psd.out_errors,0)  > 0
-                    OR COALESCE(psd.in_discards,0) > 0
                     OR COALESCE(psd.out_discards,0)> 0)
                 ORDER BY total_issues DESC, sd.name, psd.port_number
             """))
@@ -347,7 +345,6 @@ class WeeklyReportService:
                 f'<td>{r["alias"] or "—"}</td>'
                 f'<td>{r["in_errors"]:,}</td>'
                 f'<td>{r["out_errors"]:,}</td>'
-                f'<td>{r["in_discards"]:,}</td>'
                 f'<td>{r["out_discards"]:,}</td>'
                 f'<td><strong>{r["total_issues"]:,}</strong></td>'
                 f'</tr>'
@@ -356,7 +353,7 @@ class WeeklyReportService:
             err_html = (
                 '<table><tr>'
                 '<th>Switch</th><th>Port</th><th>Alias</th>'
-                '<th>↓ Hata</th><th>↑ Hata</th><th>↓ Drop</th><th>↑ Drop</th><th>Toplam</th>'
+                '<th>↓ Hata</th><th>↑ Hata</th><th>Output Drop</th><th>Toplam</th>'
                 f'</tr>{rows_html}</table>'
             )
         else:

@@ -1,7 +1,7 @@
 <?php
 /**
  * report_errors.php — Hata / Drop Raporu
- * in_errors, out_errors, in_discards, out_discards sıfırdan büyük olan portları listeler.
+ * in_errors, out_errors, out_discards (= CLI Total output drops) sıfırdan büyük olan portları listeler.
  */
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../auth.php';
@@ -23,10 +23,9 @@ $sql = "
         psd.oper_status,
         COALESCE(psd.in_errors,   0) AS in_errors,
         COALESCE(psd.out_errors,  0) AS out_errors,
-        COALESCE(psd.in_discards, 0) AS in_discards,
         COALESCE(psd.out_discards,0) AS out_discards,
         COALESCE(psd.in_errors,0) + COALESCE(psd.out_errors,0)
-            + COALESCE(psd.in_discards,0) + COALESCE(psd.out_discards,0) AS total_issues,
+            + COALESCE(psd.out_discards,0) AS total_issues,
         sd.name        AS switch_name,
         sd.ip_address,
         mdr.device_name AS conn_device,
@@ -37,12 +36,11 @@ $sql = "
     WHERE (
         COALESCE(psd.in_errors,   0) > 0 OR
         COALESCE(psd.out_errors,  0) > 0 OR
-        COALESCE(psd.in_discards, 0) > 0 OR
         COALESCE(psd.out_discards,0) > 0
     )
     ORDER BY
         (COALESCE(psd.in_errors,0) + COALESCE(psd.out_errors,0)
-         + COALESCE(psd.in_discards,0) + COALESCE(psd.out_discards,0)) DESC,
+         + COALESCE(psd.out_discards,0)) DESC,
         sd.name,
         psd.port_number
 ";
@@ -53,7 +51,6 @@ $cnt    = count($ports);
 // Özet sayılar
 $totalInErr  = array_sum(array_column($ports, 'in_errors'));
 $totalOutErr = array_sum(array_column($ports, 'out_errors'));
-$totalInDis  = array_sum(array_column($ports, 'in_discards'));
 $totalOutDis = array_sum(array_column($ports, 'out_discards'));
 
 // Switch filtre listesi
@@ -163,7 +160,7 @@ sort($switchList);
         <div>
             <h1>Hata / Drop Raporu</h1>
             <p>
-                Gelen/Giden Hata veya Drop (in_discards, out_discards) değeri sıfırdan büyük olan tüm portlar.
+                Gelen/Giden Hata veya Output Drop (out_discards = CLI Total output drops) değeri sıfırdan büyük olan tüm portlar.
                 &nbsp;·&nbsp; Son yenileme: <strong><?= date('d.m.Y H:i:s') ?></strong>
             </p>
         </div>
@@ -180,8 +177,8 @@ sort($switchList);
             <div class="label">Toplam Hata</div>
         </div>
         <div class="stat-card warn">
-            <div class="num"><?= number_format($totalInDis + $totalOutDis) ?></div>
-            <div class="label">Toplam Drop</div>
+            <div class="num"><?= number_format($totalOutDis) ?></div>
+            <div class="label">Output Drop</div>
         </div>
         <div class="stat-card info">
             <div class="num"><?= count($switchList) ?></div>
@@ -213,8 +210,7 @@ sort($switchList);
             <option value="">Tüm Hata Türleri</option>
             <option value="in_errors">Gelen Hata</option>
             <option value="out_errors">Giden Hata</option>
-            <option value="in_discards">Drop (Gelen)</option>
-            <option value="out_discards">Drop (Giden)</option>
+            <option value="out_discards">Output Drop</option>
         </select>
         <button class="btn btn-secondary" onclick="location.reload()"><i class="fas fa-sync-alt"></i> Yenile</button>
         <button class="btn btn-secondary" id="btnShowHidden" onclick="toggleHiddenView()" disabled>
@@ -245,10 +241,9 @@ sort($switchList);
                     <th onclick="sortTable(4)">Durum <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(5)" title="Gelen Hata">↓ Hata <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(6)" title="Giden Hata">↑ Hata <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(7)" title="Drop (Gelen)">↓ Drop <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(8)" title="Drop (Giden)">↑ Drop <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(9)">Toplam <span class="sort-icon fas fa-sort"></span></th>
-                    <th onclick="sortTable(10)">Son Poll <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(7)" title="Output Drop (CLI Total output drops)">Output Drop <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(8)">Toplam <span class="sort-icon fas fa-sort"></span></th>
+                    <th onclick="sortTable(9)">Son Poll <span class="sort-icon fas fa-sort"></span></th>
                     <th style="width:160px"></th>
                 </tr>
             </thead>
@@ -256,9 +251,8 @@ sort($switchList);
                 <?php foreach ($ports as $row):
                     $inErr  = (int)$row['in_errors'];
                     $outErr = (int)$row['out_errors'];
-                    $inDis  = (int)$row['in_discards'];
                     $outDis = (int)$row['out_discards'];
-                    $total  = $inErr + $outErr + $inDis + $outDis;
+                    $total  = $inErr + $outErr + $outDis;
                     $alias  = trim($row['port_alias'] ?? '');
                     $connDev = trim($row['conn_device'] ?? '');
                     $label  = $connDev !== '' ? $connDev : ($alias !== '' ? $alias : '—');
@@ -271,7 +265,6 @@ sort($switchList);
                     $typeAttr = '';
                     if ($inErr  > 0) $typeAttr .= ' in_errors';
                     if ($outErr > 0) $typeAttr .= ' out_errors';
-                    if ($inDis  > 0) $typeAttr .= ' in_discards';
                     if ($outDis > 0) $typeAttr .= ' out_discards';
                     $rowKey = htmlspecialchars('err:' . ($row['switch_name'] ?? '') . ':' . (int)$row['port_number']);
                 ?>
@@ -295,7 +288,6 @@ sort($switchList);
                     <td><span class="<?= $statusClass ?>"><?= $statusText ?></span></td>
                     <td><span class="<?= $inErr  > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($inErr)  ?></span></td>
                     <td><span class="<?= $outErr > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($outErr) ?></span></td>
-                    <td><span class="<?= $inDis  > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($inDis)  ?></span></td>
                     <td><span class="<?= $outDis > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($outDis) ?></span></td>
                     <td><span class="total-issues"><?= number_format($total) ?></span></td>
                     <td style="color:var(--text-light);font-size:11px"><?= $ts ?></td>

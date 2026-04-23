@@ -216,7 +216,7 @@ function getFlappingRows($conn) {
 
 // ─── Errors / Drop ────────────────────────────────────────────────────────
 function getErrorRows($conn) {
-    $rows = [['Switch', 'IP', 'Port', 'Cihaz/Alias', 'VLAN', 'Durum', 'Gelen Hata', 'Giden Hata', 'Drop (Gelen)', 'Drop (Giden)', 'Toplam', 'Son Poll']];
+    $rows = [['Switch', 'IP', 'Port', 'Cihaz/Alias', 'VLAN', 'Durum', 'Gelen Hata', 'Giden Hata', 'Output Drop', 'Toplam', 'Son Poll']];
     $res  = $conn->query("
         SELECT
             sd.name  AS switch_name,
@@ -227,13 +227,12 @@ function getErrorRows($conn) {
             psd.oper_status,
             COALESCE(psd.in_errors,   0) AS in_errors,
             COALESCE(psd.out_errors,  0) AS out_errors,
-            COALESCE(psd.in_discards, 0) AS in_discards,
             COALESCE(psd.out_discards,0) AS out_discards,
-            COALESCE(psd.in_errors,0)+COALESCE(psd.out_errors,0)+COALESCE(psd.in_discards,0)+COALESCE(psd.out_discards,0) AS total_issues,
+            COALESCE(psd.in_errors,0)+COALESCE(psd.out_errors,0)+COALESCE(psd.out_discards,0) AS total_issues,
             psd.poll_timestamp
         FROM port_status_data psd
         JOIN snmp_devices sd ON sd.id = psd.device_id
-        WHERE (COALESCE(psd.in_errors,0) > 0 OR COALESCE(psd.out_errors,0) > 0 OR COALESCE(psd.in_discards,0) > 0 OR COALESCE(psd.out_discards,0) > 0)
+        WHERE (COALESCE(psd.in_errors,0) > 0 OR COALESCE(psd.out_errors,0) > 0 OR COALESCE(psd.out_discards,0) > 0)
         ORDER BY total_issues DESC, sd.name, psd.port_number
     ");
     if ($res) {
@@ -247,7 +246,6 @@ function getErrorRows($conn) {
                 strtoupper($row['oper_status'] ?? ''),
                 (int)$row['in_errors'],
                 (int)$row['out_errors'],
-                (int)$row['in_discards'],
                 (int)$row['out_discards'],
                 (int)$row['total_issues'],
                 !empty($row['poll_timestamp']) ? date('d.m.Y H:i:s', strtotime($row['poll_timestamp'])) : '',
