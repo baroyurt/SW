@@ -251,6 +251,16 @@ def import_with_diagnostics():
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+    # WeeklyReportService is optional – worker starts even if it fails
+    try:
+        print("  [opt] Importing services.weekly_report_service...", end=" ", flush=True)
+        from services.weekly_report_service import WeeklyReportService
+        modules_to_import.append(("WeeklyReportService", WeeklyReportService))
+        print("OK")
+    except Exception as e:
+        print(f"SKIPPED ({e})")
+        modules_to_import.append(("WeeklyReportService", None))
     
     print("\n  All modules imported successfully!\n")
     
@@ -271,6 +281,7 @@ EmailNotificationService = imported["EmailNotificationService"]
 AutoSyncService = imported["AutoSyncService"]
 setup_logging = imported["setup_logging"]
 stop_listener = imported["stop_listener"]
+WeeklyReportService = imported.get("WeeklyReportService")
 
 
 class SNMPWorker:
@@ -466,6 +477,17 @@ class SNMPWorker:
             # Auto sync service
             self.logger.info("Initializing auto sync service...")
             self.autosync_service = AutoSyncService(self.db_manager)
+
+            # Weekly report service
+            self.weekly_report_service = None
+            if WeeklyReportService is not None and email_service and email_service.enabled:
+                self.logger.info("Initializing weekly report service…")
+                self.weekly_report_service = WeeklyReportService(
+                    db_manager=self.db_manager,
+                    email_service=email_service,
+                    weekday=getattr(getattr(self.config, 'reports', None), 'weekly_weekday', 0),
+                    hour=getattr(getattr(self.config, 'reports', None), 'weekly_hour', 8),
+                )
             
             self.logger.info("All components initialized successfully")
             
@@ -554,6 +576,14 @@ class SNMPWorker:
                     # Cleanup old notification timestamps periodically
                     if cycle_count % 10 == 0:
                         self.alarm_manager.cleanup_old_notifications()
+
+                    # Weekly report check (runs on every cycle; service handles
+                    # the weekday/hour schedule internally)
+                    if self.weekly_report_service is not None:
+                        try:
+                            self.weekly_report_service.check_and_send()
+                        except Exception as e:
+                            self.logger.error(f"Weekly report check hatası: {e}", exc_info=True)
 
                     # Cleanup old polling data and deduplicate port_status_data
                     # every ~25 minutes (50 cycles × 30s).  Removes legacy rows

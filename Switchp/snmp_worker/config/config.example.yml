@@ -156,6 +156,15 @@ email:
     - port_down
     - device_unreachable
 
+# Weekly Report (Haftalık Özet Raporu)
+# Sent every week on the configured day at the configured hour.
+# weekday: 0=Pazartesi, 1=Salı, 2=Çarşamba, 3=Perşembe, 4=Cuma, 5=Cumartesi, 6=Pazar
+# Yavaş Portlar, Up/Down Döngüsü, Hata/Drop ve VLAN/Alias Uyumsuzluk raporlarını içerir.
+# Rapor gönderimi için email.enabled = true olmalıdır.
+reports:
+  weekly_weekday: 0   # 0 = Pazartesi
+  weekly_hour: 8      # 08:00 yerel saat
+
 # Logging Configuration
 logging:
   level: "WARNING"  # DEBUG, INFO, WARNING, ERROR, CRITICAL

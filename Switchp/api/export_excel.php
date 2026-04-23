@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 session_write_close();
 
 $type = isset($_GET['type']) ? trim($_GET['type']) : 'switches';
-$allowed = ['switches', 'racks', 'panels', 'all'];
+$allowed = ['switches', 'racks', 'panels', 'all', 'flapping', 'errors', 'vlan_alias'];
 if (!in_array($type, $allowed)) {
     http_response_code(400);
     exit('Geçersiz tür.');
@@ -176,15 +176,161 @@ function getPortRows($conn) {
     return $rows;
 }
 
+// ─── Flapping (Up/Down Döngüsü) ───────────────────────────────────────────
+function getFlappingRows($conn) {
+    $rows = [['Switch', 'IP', 'Port', 'Alias', 'VLAN', 'Değişim Sayısı', 'İlk Değişim', 'Son Değişim']];
+    $res  = $conn->query("
+        SELECT
+            sd.name        AS switch_name,
+            sd.ip_address,
+            pch.port_number,
+            COALESCE(psd.port_alias, '') AS alias,
+            psd.vlan_id,
+            COUNT(*) AS change_count,
+            MIN(pch.changed_at) AS first_change,
+            MAX(pch.changed_at) AS last_change
+        FROM port_change_history pch
+        JOIN snmp_devices sd ON sd.id = pch.device_id
+        LEFT JOIN port_status_data psd ON psd.device_id = pch.device_id AND psd.port_number = pch.port_number
+        WHERE pch.changed_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+        GROUP BY sd.name, sd.ip_address, pch.port_number, psd.port_alias, psd.vlan_id
+        HAVING COUNT(*) >= 3
+        ORDER BY change_count DESC, sd.name, pch.port_number
+    ");
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $rows[] = [
+                $row['switch_name'] ?? '',
+                $row['ip_address']  ?? '',
+                (int)$row['port_number'],
+                $row['alias']       ?? '',
+                $row['vlan_id']     ?? '',
+                (int)$row['change_count'],
+                !empty($row['first_change']) ? date('d.m.Y H:i:s', strtotime($row['first_change'])) : '',
+                !empty($row['last_change'])  ? date('d.m.Y H:i:s', strtotime($row['last_change']))  : '',
+            ];
+        }
+    }
+    return $rows;
+}
+
+// ─── Errors / Drop ────────────────────────────────────────────────────────
+function getErrorRows($conn) {
+    $rows = [['Switch', 'IP', 'Port', 'Cihaz/Alias', 'VLAN', 'Durum', 'Gelen Hata', 'Giden Hata', 'Drop (Gelen)', 'Drop (Giden)', 'Toplam', 'Son Poll']];
+    $res  = $conn->query("
+        SELECT
+            sd.name  AS switch_name,
+            sd.ip_address,
+            psd.port_number,
+            COALESCE(psd.port_alias,'') AS port_alias,
+            psd.vlan_id,
+            psd.oper_status,
+            COALESCE(psd.in_errors,   0) AS in_errors,
+            COALESCE(psd.out_errors,  0) AS out_errors,
+            COALESCE(psd.in_discards, 0) AS in_discards,
+            COALESCE(psd.out_discards,0) AS out_discards,
+            COALESCE(psd.in_errors,0)+COALESCE(psd.out_errors,0)+COALESCE(psd.in_discards,0)+COALESCE(psd.out_discards,0) AS total_issues,
+            psd.poll_timestamp
+        FROM port_status_data psd
+        JOIN snmp_devices sd ON sd.id = psd.device_id
+        WHERE (COALESCE(psd.in_errors,0) > 0 OR COALESCE(psd.out_errors,0) > 0 OR COALESCE(psd.in_discards,0) > 0 OR COALESCE(psd.out_discards,0) > 0)
+        ORDER BY total_issues DESC, sd.name, psd.port_number
+    ");
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $rows[] = [
+                $row['switch_name'] ?? '',
+                $row['ip_address']  ?? '',
+                (int)$row['port_number'],
+                $row['port_alias']  ?? '',
+                $row['vlan_id']     ?? '',
+                strtoupper($row['oper_status'] ?? ''),
+                (int)$row['in_errors'],
+                (int)$row['out_errors'],
+                (int)$row['in_discards'],
+                (int)$row['out_discards'],
+                (int)$row['total_issues'],
+                !empty($row['poll_timestamp']) ? date('d.m.Y H:i:s', strtotime($row['poll_timestamp'])) : '',
+            ];
+        }
+    }
+    return $rows;
+}
+
+// ─── VLAN / Alias Uyumsuzluk ──────────────────────────────────────────────
+function getVlanAliasRows($conn) {
+    $rows = [['Switch', 'IP', 'Port', 'VLAN ID', 'VLAN Tipi (Beklenen)', 'Alias Tipi (Algılanan)', 'Mevcut Alias', 'Durum', 'Son Güncelleme']];
+    $res  = $conn->query("
+        SELECT
+            sd.name       AS switch_name,
+            sd.ip_address AS switch_ip,
+            psd.port_number,
+            psd.vlan_id,
+            COALESCE(psd.port_alias,'') AS alias,
+            psd.oper_status,
+            psd.poll_timestamp
+        FROM port_status_data psd
+        JOIN snmp_devices sd ON sd.id = psd.device_id
+        WHERE psd.vlan_id IS NOT NULL AND psd.port_alias IS NOT NULL AND psd.port_alias != ''
+        ORDER BY sd.name, psd.port_number
+    ");
+    if (!$res) return $rows;
+
+    $vlanTypeMap = [
+        30=>'GUEST',40=>'VIP',50=>'DEVICE',70=>'AP',80=>'KAMERA',
+        110=>'SES',120=>'OTOMASYON',130=>'IPTV',140=>'SANTRAL',
+        150=>'JACKPOT',254=>'SERVER',1500=>'DRGT',
+    ];
+    $typeList = array_values($vlanTypeMap);
+
+    while ($row = $res->fetch_assoc()) {
+        $vlanId = (int)$row['vlan_id'];
+        if (!isset($vlanTypeMap[$vlanId])) continue;
+        $expectedType = $vlanTypeMap[$vlanId];
+        $detectedType = detectAliasTypeExport(trim($row['alias']), $typeList);
+        if ($detectedType === null || strtoupper($detectedType) === strtoupper($expectedType)) continue;
+        $rows[] = [
+            $row['switch_name'] ?? '',
+            $row['switch_ip']   ?? '',
+            (int)$row['port_number'],
+            $vlanId,
+            $expectedType,
+            $detectedType,
+            $row['alias'],
+            strtoupper($row['oper_status'] ?? ''),
+            !empty($row['poll_timestamp']) ? date('d.m.Y H:i:s', strtotime($row['poll_timestamp'])) : '',
+        ];
+    }
+    return $rows;
+}
+
+function detectAliasTypeExport(string $alias, array $typeList): ?string {
+    $alias     = strtoupper(trim($alias));
+    $aliasNorm = preg_replace('/[\s\-_]+/', '', $alias);
+    foreach ($typeList as $type) {
+        $t = strtoupper($type);
+        $tNorm = preg_replace('/[\s\-_]+/', '', $t);
+        if ($alias === $t) return $type;
+        if (preg_match('/^' . preg_quote($t, '/') . '[\s\-_:\/]/', $alias)) return $type;
+        if (preg_match('/(?:^|[\s\-_])' . preg_quote($t, '/') . '(?:$|[\s\-_])/', $alias)) return $type;
+        if ($aliasNorm === $tNorm) return $type;
+        if ($tNorm !== '' && str_contains($aliasNorm, $tNorm)) return $type;
+    }
+    return null;
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────
 $date = date('Ymd_His');  // used in all filenames; date() output contains only safe chars
 
 // Send email notification about this export
 $exportLabels = [
-    'switches' => 'Switch Verisi',
-    'racks'    => 'Rack Verisi',
-    'panels'   => 'Panel Verisi',
-    'all'      => 'Tüm Veri',
+    'switches'   => 'Switch Verisi',
+    'racks'      => 'Rack Verisi',
+    'panels'     => 'Panel Verisi',
+    'all'        => 'Tüm Veri',
+    'flapping'   => 'Up/Down Döngüsü Raporu',
+    'errors'     => 'Hata / Drop Raporu',
+    'vlan_alias' => 'VLAN/Alias Uyumsuzluk Raporu',
 ];
 $exportLabel = $exportLabels[$type] ?? $type;
 $username    = $_SESSION['username']  ?? 'Bilinmiyor';
@@ -290,6 +436,12 @@ if ($type === 'switches') {
     outputCsv('racks_' . $date . '.csv', getRackRows($conn));
 } elseif ($type === 'panels') {
     outputCsv('panels_' . $date . '.csv', getPanelRows($conn));
+} elseif ($type === 'flapping') {
+    outputCsv('updown_dongu_' . $date . '.csv', getFlappingRows($conn));
+} elseif ($type === 'errors') {
+    outputCsv('hata_drop_' . $date . '.csv', getErrorRows($conn));
+} elseif ($type === 'vlan_alias') {
+    outputCsv('vlan_alias_uyumsuzluk_' . $date . '.csv', getVlanAliasRows($conn));
 } elseif ($type === 'all') {
     // Produce one multi-section CSV
     header('Content-Type: text/csv; charset=utf-8');

@@ -67,7 +67,6 @@ sort($switchList);
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hata / Drop Raporu</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
     html { zoom: 0.95; }
     :root {
@@ -135,6 +134,21 @@ sort($switchList);
     .btn { padding:8px 14px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:600; display:inline-flex; align-items:center; gap:6px; }
     .btn-secondary { background:var(--dark-light); border:1px solid var(--border); color:var(--text); }
     .btn-secondary:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-secondary.active { border-color:var(--warning); color:var(--warning); background:rgba(245,158,11,0.08); }
+    .btn-hide-row { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #ef4444; color:#ef4444; background:transparent; cursor:pointer; white-space:nowrap; }
+    .btn-hide-row:hover { background:rgba(239,68,68,0.12); }
+    .btn-goto-port { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #3b82f6; color:#3b82f6; background:transparent; cursor:pointer; white-space:nowrap; text-decoration:none; display:inline-flex; align-items:center; gap:4px; margin-right:4px; }
+    .btn-goto-port:hover { background:rgba(59,130,246,0.12); }
+    /* Download password modal */
+    .dl-modal { display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(5px); justify-content:center; align-items:center; }
+    .dl-modal.show { display:flex; }
+    .dl-modal-content { background:var(--dark-light); padding:30px; border-radius:15px; width:90%; max-width:420px; box-shadow:0 10px 30px rgba(0,0,0,0.5); }
+    .dl-modal-title { font-size:17px; font-weight:bold; color:var(--text); margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+    .dl-modal-body { color:var(--text-light); font-size:13px; margin-bottom:18px; line-height:1.5; }
+    .dl-modal-input { width:100%; padding:9px 12px; background:var(--dark); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; box-sizing:border-box; margin-bottom:6px; }
+    .dl-modal-input:focus { outline:none; border-color:#0ea5e9; }
+    .dl-modal-error { font-size:12px; color:#f87171; display:none; margin-bottom:16px; }
+    .dl-modal-actions { display:flex; gap:10px; justify-content:flex-end; }
 
     /* Total issues mini badge */
     .total-issues { display:inline-block; padding:3px 9px; border-radius:10px; font-size:12px; font-weight:700; background:#2d1f07; color:#fcd34d; border:1px solid #d97706; }
@@ -203,8 +217,11 @@ sort($switchList);
             <option value="out_discards">Drop (Giden)</option>
         </select>
         <button class="btn btn-secondary" onclick="location.reload()"><i class="fas fa-sync-alt"></i> Yenile</button>
+        <button class="btn btn-secondary" id="btnShowHidden" onclick="toggleHiddenView()" disabled>
+            <i class="fas fa-eye" id="btnHideIcon"></i> <span id="btnHideLabel">Gizlileri Göster (0)</span>
+        </button>
         <?php if ($cnt > 0): ?>
-        <button class="btn btn-secondary" onclick="exportXLSX()"><i class="fas fa-file-excel"></i> Excel</button>
+        <button class="btn btn-secondary" onclick="openDlModal()"><i class="fas fa-file-excel"></i> Excel</button>
         <?php endif; ?>
     </div>
 
@@ -232,6 +249,7 @@ sort($switchList);
                     <th onclick="sortTable(8)" title="Drop (Giden)">↑ Drop <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(9)">Toplam <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(10)">Son Poll <span class="sort-icon fas fa-sort"></span></th>
+                    <th style="width:160px"></th>
                 </tr>
             </thead>
             <tbody id="tableBody">
@@ -255,9 +273,11 @@ sort($switchList);
                     if ($outErr > 0) $typeAttr .= ' out_errors';
                     if ($inDis  > 0) $typeAttr .= ' in_discards';
                     if ($outDis > 0) $typeAttr .= ' out_discards';
+                    $rowKey = htmlspecialchars('err:' . ($row['switch_name'] ?? '') . ':' . (int)$row['port_number']);
                 ?>
                 <tr data-switch="<?= htmlspecialchars($row['switch_name'] ?? '') ?>"
-                    data-types="<?= trim($typeAttr) ?>">
+                    data-types="<?= trim($typeAttr) ?>"
+                    data-rowkey="<?= $rowKey ?>">
                     <td>
                         <?= htmlspecialchars($row['switch_name'] ?? '-') ?>
                         <?php if (!empty($row['ip_address'])): ?>
@@ -279,6 +299,10 @@ sort($switchList);
                     <td><span class="<?= $outDis > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($outDis) ?></span></td>
                     <td><span class="total-issues"><?= number_format($total) ?></span></td>
                     <td style="color:var(--text-light);font-size:11px"><?= $ts ?></td>
+                    <td style="text-align:right;white-space:nowrap;padding-right:10px">
+                        <button class="btn-goto-port" onclick="gotoPort(<?= htmlspecialchars(json_encode($row['switch_name']), ENT_QUOTES) ?>,<?= (int)$row['port_number'] ?>)" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
+                        <button class="btn-hide-row" onclick="hideRow('<?= $rowKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
+                    </td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -291,56 +315,118 @@ sort($switchList);
 
 </div>
 
+<!-- Download password modal -->
+<div id="dlPasswordModal" class="dl-modal">
+    <div class="dl-modal-content">
+        <div class="dl-modal-title"><i class="fas fa-lock" style="color:#0ea5e9;"></i> İndirme Onayı</div>
+        <div class="dl-modal-body">Excel dosyasını indirmek için şifrenizi girin.</div>
+        <input type="password" id="dlPassword" class="dl-modal-input" placeholder="Şifreniz…" autocomplete="current-password">
+        <div class="dl-modal-error" id="dlPasswordError">Şifre hatalı. Lütfen tekrar deneyin.</div>
+        <div class="dl-modal-actions">
+            <button onclick="closeDlModal()" style="padding:9px 20px;border:1px solid var(--border);background:transparent;color:var(--text-light);border-radius:8px;cursor:pointer;font-size:14px;">
+                <i class="fas fa-times"></i> İptal
+            </button>
+            <button id="dlConfirmBtn" onclick="confirmDownload()" style="padding:9px 20px;background:#0ea5e9;color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">
+                <i class="fas fa-file-excel"></i> İndir
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
-function filterTable() {
-    const q       = document.getElementById('searchInput').value.toLowerCase();
-    const swF     = document.getElementById('switchFilter').value;
-    const typeF   = document.getElementById('typeFilter').value;
-    const rows    = document.querySelectorAll('#tableBody tr');
-    let visible = 0;
-    rows.forEach(tr => {
-        const matchQ  = !q     || tr.textContent.toLowerCase().includes(q);
-        const matchSw = !swF   || tr.dataset.switch === swF;
-        const matchT  = !typeF || (tr.dataset.types || '').includes(typeF);
-        const show = matchQ && matchSw && matchT;
-        tr.style.display = show ? '' : 'none';
-        if (show) visible++;
+// ── Hide / Show (server-side) ─────────────────────────────────────────────────
+let hiddenRows   = new Set();
+let showingHidden = false;
+
+function loadHiddenRows() {
+    fetch('../api/hidden_ports_api.php')
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                hiddenRows = new Set(d.hidden.filter(k => k.startsWith('err:')));
+                updateHideBtn();
+                filterTable();
+            }
+        })
+        .catch(() => {});
+}
+function saveHide(key) { fetch('../api/hidden_ports_api.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'hide',row_key:key})}).catch(()=>{}); }
+function saveShow(key) { fetch('../api/hidden_ports_api.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'show',row_key:key})}).catch(()=>{}); }
+
+function hideRow(key) { hiddenRows.add(key); saveHide(key); updateHideBtn(); updateRowButtons(); filterTable(); }
+function showRow(key) { hiddenRows.delete(key); saveShow(key); if(!hiddenRows.size) showingHidden=false; updateHideBtn(); updateRowButtons(); filterTable(); }
+function toggleHiddenView() { showingHidden=!showingHidden; updateHideBtn(); updateRowButtons(); filterTable(); }
+
+function updateHideBtn() {
+    const btn=document.getElementById('btnShowHidden'), label=document.getElementById('btnHideLabel'), icon=document.getElementById('btnHideIcon'), n=hiddenRows.size;
+    if (showingHidden) { label.textContent='← Tüm Portlar'; icon.className='fas fa-list'; btn.disabled=false; btn.classList.add('active'); }
+    else { label.textContent='Gizlileri Göster ('+n+')'; icon.className='fas fa-eye'; btn.disabled=n===0; btn.classList.toggle('active',n>0); }
+}
+function updateRowButtons() {
+    document.querySelectorAll('#tableBody tr').forEach(tr => {
+        const key=tr.dataset.rowkey||'', hideBtn=tr.querySelector('.btn-hide-row');
+        if (!hideBtn) return;
+        if (showingHidden) { hideBtn.innerHTML='<i class="fas fa-eye"></i> Göster'; hideBtn.onclick=()=>showRow(key); hideBtn.title='Bu satırı geri göster'; }
+        else { hideBtn.innerHTML='<i class="fas fa-eye-slash"></i> Gizle'; hideBtn.onclick=()=>hideRow(key); hideBtn.title='Bu satırı gizle'; }
     });
-    const rc = document.getElementById('rowCount');
-    if (rc) rc.innerHTML = `<strong>${visible}</strong> port gösteriliyor.`;
 }
 
+// ── Filter ────────────────────────────────────────────────────────────────────
+function filterTable() {
+    const q=document.getElementById('searchInput').value.toLowerCase(), swF=document.getElementById('switchFilter').value, typeF=document.getElementById('typeFilter').value;
+    const rows=document.querySelectorAll('#tableBody tr'); let visible=0;
+    rows.forEach(tr => {
+        const rowKey=tr.dataset.rowkey||'';
+        let show;
+        if (showingHidden) { show=hiddenRows.has(rowKey); }
+        else {
+            const matchQ=!q||tr.textContent.toLowerCase().includes(q), matchSw=!swF||tr.dataset.switch===swF, matchT=!typeF||(tr.dataset.types||'').includes(typeF);
+            show=matchQ&&matchSw&&matchT&&!hiddenRows.has(rowKey);
+        }
+        tr.style.display=show?'':'none'; if(show) visible++;
+    });
+    const rc=document.getElementById('rowCount');
+    if (rc) rc.innerHTML=showingHidden?`<strong>${visible}</strong> gizli kayıt listeleniyor.`:`<strong>${visible}</strong> port gösteriliyor.`;
+}
+
+document.addEventListener('DOMContentLoaded',function(){ loadHiddenRows(); updateHideBtn(); updateRowButtons(); });
+
+// ── Sort ──────────────────────────────────────────────────────────────────────
 let sortState = { col: -1, asc: true };
 function sortTable(col) {
-    const tbody = document.getElementById('tableBody');
-    if (!tbody) return;
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    const asc  = (sortState.col === col) ? !sortState.asc : true;
-    sortState  = { col, asc };
-    rows.sort((a, b) => {
-        const va = a.querySelectorAll('td')[col]?.textContent.trim().replace(/,/g, '') ?? '';
-        const vb = b.querySelectorAll('td')[col]?.textContent.trim().replace(/,/g, '') ?? '';
-        const na = parseFloat(va), nb = parseFloat(vb);
-        const cmp = (!isNaN(na) && !isNaN(nb)) ? na - nb : va.localeCompare(vb, 'tr');
-        return asc ? cmp : -cmp;
-    });
-    rows.forEach(r => tbody.appendChild(r));
-    document.querySelectorAll('thead th').forEach((th, i) => {
-        th.classList.toggle('sorted', i === col);
-        const icon = th.querySelector('.sort-icon');
-        if (icon) icon.className = 'sort-icon fas ' + (i !== col ? 'fa-sort' : asc ? 'fa-sort-up' : 'fa-sort-down');
-    });
+    const tbody=document.getElementById('tableBody'); if(!tbody) return;
+    const rows=Array.from(tbody.querySelectorAll('tr')), asc=(sortState.col===col)?!sortState.asc:true;
+    sortState={col,asc};
+    rows.sort((a,b)=>{ const va=a.querySelectorAll('td')[col]?.textContent.trim().replace(/,/g,'')??\'\', vb=b.querySelectorAll('td')[col]?.textContent.trim().replace(/,/g,'')??\'\'; const na=parseFloat(va),nb=parseFloat(vb), cmp=(!isNaN(na)&&!isNaN(nb))?na-nb:va.localeCompare(vb,'tr'); return asc?cmp:-cmp; });
+    rows.forEach(r=>tbody.appendChild(r));
+    document.querySelectorAll('thead th').forEach((th,i)=>{ th.classList.toggle('sorted',i===col); const icon=th.querySelector('.sort-icon'); if(icon) icon.className='sort-icon fas '+(i!==col?'fa-sort':asc?'fa-sort-up':'fa-sort-down'); });
 }
 
-function exportXLSX() {
-    const headers = ['Switch', 'Port', 'Cihaz/Alias', 'VLAN', 'Durum', 'Gelen Hata', 'Giden Hata', 'Drop (Gelen)', 'Drop (Giden)', 'Toplam', 'Son Poll'];
-    const rows = Array.from(document.querySelectorAll('#tableBody tr'))
-        .filter(r => r.style.display !== 'none')
-        .map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent.trim()));
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Hata-Drop');
-    XLSX.writeFile(wb, 'hata_drop_raporu_' + new Date().toISOString().slice(0,10) + '.xlsx');
+// ── Porta Git ─────────────────────────────────────────────────────────────────
+function gotoPort(switchName, portNumber) {
+    if (window.parent && window.parent !== window && typeof window.parent.gotoPortInline === 'function') {
+        window.parent.gotoPortInline(switchName, portNumber);
+    } else {
+        window.open('../index.php?switch=' + encodeURIComponent(switchName) + '&port=' + portNumber, '_blank');
+    }
+}
+
+// ── Download password modal ───────────────────────────────────────────────────
+function openDlModal() { document.getElementById('dlPassword').value=''; document.getElementById('dlPasswordError').style.display='none'; document.getElementById('dlPasswordModal').classList.add('show'); setTimeout(()=>document.getElementById('dlPassword').focus(),50); }
+function closeDlModal() { document.getElementById('dlPasswordModal').classList.remove('show'); document.getElementById('dlPassword').value=''; document.getElementById('dlPasswordError').style.display='none'; }
+document.getElementById('dlPasswordModal').addEventListener('click',function(e){ if(e.target===this) closeDlModal(); });
+document.getElementById('dlPassword').addEventListener('keydown',function(e){ if(e.key==='Enter') confirmDownload(); });
+
+async function confirmDownload() {
+    const password=document.getElementById('dlPassword').value, errEl=document.getElementById('dlPasswordError'), btn=document.getElementById('dlConfirmBtn');
+    if (!password) { errEl.textContent='Şifre boş olamaz.'; errEl.style.display='block'; document.getElementById('dlPassword').focus(); return; }
+    btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i> Doğrulanıyor…'; errEl.style.display='none';
+    try {
+        const res=await fetch('../api/export_excel.php?type=errors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
+        const data=await res.json();
+        if (!data.success) { errEl.textContent=data.error||'Şifre hatalı.'; errEl.style.display='block'; btn.disabled=false; btn.innerHTML='<i class="fas fa-file-excel"></i> İndir'; document.getElementById('dlPassword').focus(); document.getElementById('dlPassword').select(); return; }
+        closeDlModal(); window.location.href='../api/export_excel.php?type=errors';
+    } catch(e) { errEl.textContent='Sunucu hatası. Lütfen tekrar deneyin.'; errEl.style.display='block'; btn.disabled=false; btn.innerHTML='<i class="fas fa-file-excel"></i> İndir'; }
 }
 </script>
 </body>

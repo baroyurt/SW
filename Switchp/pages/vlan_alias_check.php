@@ -303,8 +303,21 @@ arsort($vlanGroups);
         }
         .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
         .btn-secondary:disabled { opacity:.45; cursor:not-allowed; }
+        .btn-secondary.active { border-color: var(--warning); color: var(--warning); background: rgba(245,158,11,0.08); }
         .btn-hide-row { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #ef4444; color:#ef4444; background:transparent; cursor:pointer; white-space:nowrap; }
         .btn-hide-row:hover { background:rgba(239,68,68,0.12); }
+        .btn-goto-port { padding:2px 8px; font-size:11px; border-radius:4px; border:1px solid #3b82f6; color:#3b82f6; background:transparent; cursor:pointer; white-space:nowrap; text-decoration:none; display:inline-flex; align-items:center; gap:4px; margin-right:4px; }
+        .btn-goto-port:hover { background:rgba(59,130,246,0.12); }
+        /* Download password modal */
+        .dl-modal { display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(5px); justify-content:center; align-items:center; }
+        .dl-modal.show { display:flex; }
+        .dl-modal-content { background:var(--dark-light); padding:30px; border-radius:15px; width:90%; max-width:420px; box-shadow:0 10px 30px rgba(0,0,0,0.5); }
+        .dl-modal-title { font-size:17px; font-weight:bold; color:var(--text); margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+        .dl-modal-body { color:var(--text-light); font-size:13px; margin-bottom:18px; line-height:1.5; }
+        .dl-modal-input { width:100%; padding:9px 12px; background:var(--dark); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; box-sizing:border-box; margin-bottom:6px; }
+        .dl-modal-input:focus { outline:none; border-color:#0ea5e9; }
+        .dl-modal-error { font-size:12px; color:#f87171; display:none; margin-bottom:16px; }
+        .dl-modal-actions { display:flex; gap:10px; justify-content:flex-end; }
 
         /* ── Table ── */
         .table-wrap {
@@ -459,11 +472,11 @@ arsort($vlanGroups);
         <button class="btn btn-secondary" onclick="location.reload()">
             <i class="fas fa-sync-alt"></i> Yenile
         </button>
-        <button class="btn btn-secondary" onclick="exportCSV()">
-            <i class="fas fa-file-csv"></i> CSV
+        <button class="btn btn-secondary" onclick="openDlModal()">
+            <i class="fas fa-file-excel"></i> Excel
         </button>
-        <button class="btn btn-secondary" id="btnShowHidden" onclick="vacShowAllHidden()" disabled title="Gizlenen satırları tekrar göster">
-            <i class="fas fa-eye"></i> <span id="labelShowHidden">Gizlileri Göster (0)</span>
+        <button class="btn btn-secondary" id="btnShowHidden" onclick="vacToggleHiddenView()" disabled title="Gizlenen satırları tekrar göster">
+            <i class="fas fa-eye" id="btnHideIcon"></i> <span id="labelShowHidden">Gizlileri Göster (0)</span>
         </button>
     </div>
 
@@ -488,7 +501,7 @@ arsort($vlanGroups);
                     <th onclick="sortTable(6)">Mevcut Alias <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(7)">Durum <span class="sort-icon fas fa-sort"></span></th>
                     <th onclick="sortTable(8)">Son Güncelleme <span class="sort-icon fas fa-sort"></span></th>
-                        <th style="width:70px"></th>
+                        <th style="width:170px"></th>
                 </tr>
             </thead>
             <tbody id="tableBody">
@@ -500,7 +513,7 @@ arsort($vlanGroups);
                     $statusLabel = strtoupper($row['oper_status'] ?? 'unknown');
                 ?>
                 <?php
-                    $vacKey = htmlspecialchars($row['switch_name'] . ':' . (int)$row['port_number']);
+                    $vacKey = htmlspecialchars('vac:' . ($row['switch_name'] ?? '') . ':' . (int)$row['port_number']);
                 ?>
                 <tr data-rowkey="<?= $vacKey ?>">
                     <td><?= htmlspecialchars($row['switch_name'] ?? '-') ?></td>
@@ -515,7 +528,10 @@ arsort($vlanGroups);
                     <td style="color:var(--text-light);font-size:12px"><?= htmlspecialchars($row['alias']) ?></td>
                     <td><span class="badge <?= $statusClass ?>"><?= $statusLabel ?></span></td>
                     <td style="color:var(--text-light)"><?= $ts ?></td>
-                    <td style="text-align:center"><button class="btn-hide-row" onclick="vacHideRow('<?= $vacKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button></td>
+                    <td style="text-align:right;white-space:nowrap;padding-right:10px">
+                        <button class="btn-goto-port" onclick="gotoPort(<?= htmlspecialchars(json_encode($row['switch_name']), ENT_QUOTES) ?>,<?= (int)$row['port_number'] ?>)" title="Bu porta git"><i class="fas fa-plug"></i> Porta Git</button>
+                        <button class="btn-hide-row" onclick="vacHideRow('<?= $vacKey ?>')" title="Bu satırı gizle"><i class="fas fa-eye-slash"></i> Gizle</button>
+                    </td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -528,115 +544,119 @@ arsort($vlanGroups);
 
 </div>
 
+<!-- Download password modal -->
+<div id="dlPasswordModal" class="dl-modal">
+    <div class="dl-modal-content">
+        <div class="dl-modal-title"><i class="fas fa-lock" style="color:#0ea5e9;"></i> İndirme Onayı</div>
+        <div class="dl-modal-body">Excel dosyasını indirmek için şifrenizi girin.</div>
+        <input type="password" id="dlPassword" class="dl-modal-input" placeholder="Şifreniz…" autocomplete="current-password">
+        <div class="dl-modal-error" id="dlPasswordError">Şifre hatalı. Lütfen tekrar deneyin.</div>
+        <div class="dl-modal-actions">
+            <button onclick="closeDlModal()" style="padding:9px 20px;border:1px solid var(--border);background:transparent;color:var(--text-light);border-radius:8px;cursor:pointer;font-size:14px;">
+                <i class="fas fa-times"></i> İptal
+            </button>
+            <button id="dlConfirmBtn" onclick="confirmDownload()" style="padding:9px 20px;background:#0ea5e9;color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">
+                <i class="fas fa-file-excel"></i> İndir
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
-// ── Per-row hide (localStorage) ───────────────────────────────────────
-const VAC_LS_KEY = 'vac_hidden_rows';
-let vacHiddenRows = new Set(JSON.parse(localStorage.getItem(VAC_LS_KEY) || '[]'));
+// ── Per-row hide (server-side) ─────────────────────────────────────────
+let vacHiddenRows  = new Set();
+let vacShowingHidden = false;
 
-function vacSaveHidden() { localStorage.setItem(VAC_LS_KEY, JSON.stringify([...vacHiddenRows])); }
-
-function vacHideRow(key) {
-    vacHiddenRows.add(key);
-    vacSaveHidden();
-    vacUpdateBtn();
-    filterTable();
+function vacLoadHidden() {
+    fetch('../api/hidden_ports_api.php')
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                vacHiddenRows = new Set(d.hidden.filter(k => k.startsWith('vac:')));
+                vacUpdateBtn();
+                filterTable();
+            }
+        })
+        .catch(() => {});
 }
+function vacSaveHide(key) { fetch('../api/hidden_ports_api.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'hide',row_key:key})}).catch(()=>{}); }
+function vacSaveShow(key) { fetch('../api/hidden_ports_api.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'show',row_key:key})}).catch(()=>{}); }
 
-function vacShowAllHidden() {
-    vacHiddenRows.clear();
-    vacSaveHidden();
-    vacUpdateBtn();
-    filterTable();
-}
+function vacHideRow(key) { vacHiddenRows.add(key); vacSaveHide(key); vacUpdateBtn(); vacUpdateRowButtons(); filterTable(); }
+function vacShowRow(key) { vacHiddenRows.delete(key); vacSaveShow(key); if(!vacHiddenRows.size) vacShowingHidden=false; vacUpdateBtn(); vacUpdateRowButtons(); filterTable(); }
+function vacToggleHiddenView() { vacShowingHidden=!vacShowingHidden; vacUpdateBtn(); vacUpdateRowButtons(); filterTable(); }
 
 function vacUpdateBtn() {
-    const btn   = document.getElementById('btnShowHidden');
-    const label = document.getElementById('labelShowHidden');
-    const n     = vacHiddenRows.size;
-    label.textContent = 'Gizlileri Göster (' + n + ')';
-    btn.disabled = n === 0;
-    btn.classList.toggle('active', n > 0);
+    const btn=document.getElementById('btnShowHidden'), label=document.getElementById('labelShowHidden'), icon=document.getElementById('btnHideIcon'), n=vacHiddenRows.size;
+    if (vacShowingHidden) { label.textContent='← Tüm Portlar'; icon.className='fas fa-list'; btn.disabled=false; btn.classList.add('active'); }
+    else { label.textContent='Gizlileri Göster ('+n+')'; icon.className='fas fa-eye'; btn.disabled=n===0; btn.classList.toggle('active',n>0); }
+}
+function vacUpdateRowButtons() {
+    document.querySelectorAll('#tableBody tr').forEach(tr => {
+        const key=tr.dataset.rowkey||'', hideBtn=tr.querySelector('.btn-hide-row');
+        if (!hideBtn) return;
+        if (vacShowingHidden) { hideBtn.innerHTML='<i class="fas fa-eye"></i> Göster'; hideBtn.onclick=()=>vacShowRow(key); hideBtn.title='Bu satırı geri göster'; }
+        else { hideBtn.innerHTML='<i class="fas fa-eye-slash"></i> Gizle'; hideBtn.onclick=()=>vacHideRow(key); hideBtn.title='Bu satırı gizle'; }
+    });
 }
 
 // ── Filter ──────────────────────────────────────────────────────────
 function filterTable() {
-    const q      = document.getElementById('searchInput').value.toLowerCase();
-    const vlan   = document.getElementById('vlanFilter').value;
-    const status = document.getElementById('statusFilter').value.toLowerCase();
-    const rows   = document.querySelectorAll('#tableBody tr');
-    let visible  = 0;
+    const q=document.getElementById('searchInput').value.toLowerCase(), vlan=document.getElementById('vlanFilter').value, status=document.getElementById('statusFilter').value.toLowerCase();
+    const rows=document.querySelectorAll('#tableBody tr'); let visible=0;
     rows.forEach(tr => {
-        const cells = tr.querySelectorAll('td');
-        const text  = tr.textContent.toLowerCase();
-        const rowVlan   = cells[3]?.textContent.trim();
-        const rowStatus = cells[7]?.textContent.trim().toLowerCase();
-        const rowKey    = tr.dataset.rowkey || '';
-        const matchQ      = !q      || text.includes(q);
-        const matchVlan   = !vlan   || rowVlan   === vlan;
-        const matchStatus = !status || rowStatus === status;
-        const matchHide   = !vacHiddenRows.has(rowKey);
-        const show = matchQ && matchVlan && matchStatus && matchHide;
-        tr.style.display = show ? '' : 'none';
-        if (show) visible++;
+        const cells=tr.querySelectorAll('td'), text=tr.textContent.toLowerCase(), rowVlan=cells[3]?.textContent.trim(), rowStatus=cells[7]?.textContent.trim().toLowerCase(), rowKey=tr.dataset.rowkey||'';
+        let show;
+        if (vacShowingHidden) { show=vacHiddenRows.has(rowKey); }
+        else { show=(!q||text.includes(q))&&(!vlan||rowVlan===vlan)&&(!status||rowStatus===status)&&!vacHiddenRows.has(rowKey); }
+        tr.style.display=show?'':'none'; if(show) visible++;
     });
-    const rc = document.getElementById('rowCount');
-    if (rc) rc.innerHTML = `<strong>${visible}</strong> kayıt gösteriliyor.`;
-    // Update stat cards to reflect visible (non-hidden) counts
-    const totalRows  = rows.length;
-    const hiddenCnt  = vacHiddenRows.size;
-    const visibleMismatch = Math.max(0, totalRows - hiddenCnt);
-    const elMismatch = document.getElementById('statMismatch');
-    const elMatch    = document.getElementById('statMatch');
-    const elTotal    = document.getElementById('statTotalScanned');
-    if (elMismatch) elMismatch.textContent = visibleMismatch;
-    if (elMatch)    elMatch.textContent    = Math.max(0, (elTotal ? parseInt(elTotal.textContent) : totalRows) - visibleMismatch);
+    const rc=document.getElementById('rowCount');
+    if (rc) rc.innerHTML=vacShowingHidden?`<strong>${visible}</strong> gizli kayıt listeleniyor.`:`<strong>${visible}</strong> kayıt gösteriliyor.`;
+    const totalRows=rows.length, hiddenCnt=vacHiddenRows.size, visibleMismatch=Math.max(0,totalRows-hiddenCnt);
+    const elMismatch=document.getElementById('statMismatch'), elMatch=document.getElementById('statMatch'), elTotal=document.getElementById('statTotalScanned');
+    if (elMismatch) elMismatch.textContent=visibleMismatch;
+    if (elMatch)    elMatch.textContent=Math.max(0,(elTotal?parseInt(elTotal.textContent):totalRows)-visibleMismatch);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    vacLoadHidden();
     vacUpdateBtn();
-    filterTable();
+    vacUpdateRowButtons();
 });
 
 // ── Sort ─────────────────────────────────────────────────────────────
 let sortState = { col: -1, asc: true };
 function sortTable(col) {
-    const tbody = document.getElementById('tableBody');
-    if (!tbody) return;
-    const rows  = Array.from(tbody.querySelectorAll('tr'));
-    const asc   = (sortState.col === col) ? !sortState.asc : true;
-    sortState   = { col, asc };
-
-    rows.sort((a, b) => {
-        const va = a.querySelectorAll('td')[col]?.textContent.trim() ?? '';
-        const vb = b.querySelectorAll('td')[col]?.textContent.trim() ?? '';
-        const na = parseFloat(va), nb = parseFloat(vb);
-        const cmp = (!isNaN(na) && !isNaN(nb)) ? na - nb : va.localeCompare(vb, 'tr');
-        return asc ? cmp : -cmp;
-    });
-    rows.forEach(r => tbody.appendChild(r));
-
-    document.querySelectorAll('thead th').forEach((th, i) => {
-        th.classList.toggle('sorted', i === col);
-        const icon = th.querySelector('.sort-icon');
-        if (icon) {
-            icon.className = 'sort-icon fas ' +
-                (i !== col ? 'fa-sort' : asc ? 'fa-sort-up' : 'fa-sort-down');
-        }
-    });
+    const tbody=document.getElementById('tableBody'); if(!tbody) return;
+    const rows=Array.from(tbody.querySelectorAll('tr')), asc=(sortState.col===col)?!sortState.asc:true;
+    sortState={col,asc};
+    rows.sort((a,b)=>{ const va=a.querySelectorAll('td')[col]?.textContent.trim()?? '',vb=b.querySelectorAll('td')[col]?.textContent.trim()?? ''; const na=parseFloat(va),nb=parseFloat(vb),cmp=(!isNaN(na)&&!isNaN(nb))?na-nb:va.localeCompare(vb,'tr'); return asc?cmp:-cmp; });
+    rows.forEach(r=>tbody.appendChild(r));
+    document.querySelectorAll('thead th').forEach((th,i)=>{ th.classList.toggle('sorted',i===col); const icon=th.querySelector('.sort-icon'); if(icon) icon.className='sort-icon fas '+(i!==col?'fa-sort':asc?'fa-sort-up':'fa-sort-down'); });
 }
 
-// ── CSV Export ────────────────────────────────────────────────────────
-function exportCSV() {
-    const headers = ['Switch Adı','IP Adresi','Port','VLAN ID','VLAN Tipi','Alias Tipi','Mevcut Alias','Durum','Son Güncelleme'];
-    const rows    = Array.from(document.querySelectorAll('#tableBody tr'))
-        .filter(r => r.style.display !== 'none')
-        .map(r => Array.from(r.querySelectorAll('td'))
-            .map(td => '"' + td.textContent.trim().replace(/"/g,'""') + '"'));
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const a   = document.createElement('a');
-    a.href    = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
-    a.download = 'vlan_alias_uyumsuzluk_' + new Date().toISOString().slice(0,10) + '.csv';
-    a.click();
+// ── Porta Git ─────────────────────────────────────────────────────────────────
+function gotoPort(switchName, portNumber) {
+    if (window.parent&&window.parent!==window&&typeof window.parent.gotoPortInline==='function') { window.parent.gotoPortInline(switchName,portNumber); }
+    else { window.open('../index.php?switch='+encodeURIComponent(switchName)+'&port='+portNumber,'_blank'); }
+}
+
+// ── Download password modal ───────────────────────────────────────────────────
+function openDlModal() { document.getElementById('dlPassword').value=''; document.getElementById('dlPasswordError').style.display='none'; document.getElementById('dlPasswordModal').classList.add('show'); setTimeout(()=>document.getElementById('dlPassword').focus(),50); }
+function closeDlModal() { document.getElementById('dlPasswordModal').classList.remove('show'); document.getElementById('dlPassword').value=''; document.getElementById('dlPasswordError').style.display='none'; }
+document.getElementById('dlPasswordModal').addEventListener('click',function(e){ if(e.target===this) closeDlModal(); });
+document.getElementById('dlPassword').addEventListener('keydown',function(e){ if(e.key==='Enter') confirmDownload(); });
+async function confirmDownload() {
+    const password=document.getElementById('dlPassword').value, errEl=document.getElementById('dlPasswordError'), btn=document.getElementById('dlConfirmBtn');
+    if (!password) { errEl.textContent='Şifre boş olamaz.'; errEl.style.display='block'; document.getElementById('dlPassword').focus(); return; }
+    btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i> Doğrulanıyor…'; errEl.style.display='none';
+    try {
+        const res=await fetch('../api/export_excel.php?type=vlan_alias',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
+        const data=await res.json();
+        if (!data.success) { errEl.textContent=data.error||'Şifre hatalı.'; errEl.style.display='block'; btn.disabled=false; btn.innerHTML='<i class="fas fa-file-excel"></i> İndir'; document.getElementById('dlPassword').focus(); document.getElementById('dlPassword').select(); return; }
+        closeDlModal(); window.location.href='../api/export_excel.php?type=vlan_alias';
+    } catch(e) { errEl.textContent='Sunucu hatası. Lütfen tekrar deneyin.'; errEl.style.display='block'; btn.disabled=false; btn.innerHTML='<i class="fas fa-file-excel"></i> İndir'; }
 }
 </script>
 </body>

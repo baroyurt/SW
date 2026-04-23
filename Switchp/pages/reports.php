@@ -519,14 +519,29 @@ function formatSpeed(int $bps): string {
         Yavaş Portlar
     </button>
 
-    <!-- Separator -->
-    <span style="color:var(--border);font-size:16px;margin:0 4px;flex-shrink:0">|</span>
-
     <!-- Iframe reports -->
+    <button class="nav-btn" onclick="loadFrame(this,'report_flapping.php')"
+            data-label="Up/Down Döngüsü">
+        <i class="fas fa-exchange-alt" style="color:#ef4444"></i>
+        Up/Down Döngüsü
+    </button>
+    <button class="nav-btn" onclick="loadFrame(this,'report_errors.php')"
+            data-label="Hata / Drop">
+        <i class="fas fa-bug" style="color:#f59e0b"></i>
+        Hata / Drop
+    </button>
     <button class="nav-btn" onclick="loadFrame(this,'vlan_alias_check.php')"
             data-label="VLAN/Alias Uyumsuzluk">
         <i class="fas fa-exclamation-triangle" style="color:#f59e0b"></i>
         VLAN/Alias Uyumsuzluk
+    </button>
+
+    <span style="color:var(--border);font-size:16px;margin:0 4px;flex-shrink:0">|</span>
+
+    <button class="nav-btn" onclick="loadFrame(this,'report_vlan_dist.php')"
+            data-label="VLAN Dağılımı">
+        <i class="fas fa-layer-group" style="color:#a78bfa"></i>
+        VLAN Dağılımı
     </button>
     <button class="nav-btn" onclick="loadFrame(this,'matris.php')"
             data-label="Alarm Matrisi">
@@ -542,24 +557,6 @@ function formatSpeed(int $bps): string {
             data-label="Cihaz Envanteri">
         <i class="fas fa-laptop" style="color:#10b981"></i>
         Cihaz Envanteri
-    </button>
-
-    <span style="color:var(--border);font-size:16px;margin:0 4px;flex-shrink:0">|</span>
-
-    <button class="nav-btn" onclick="loadFrame(this,'report_vlan_dist.php')"
-            data-label="VLAN Dağılımı">
-        <i class="fas fa-layer-group" style="color:#a78bfa"></i>
-        VLAN Dağılımı
-    </button>
-    <button class="nav-btn" onclick="loadFrame(this,'report_flapping.php')"
-            data-label="Up/Down Döngüsü">
-        <i class="fas fa-exchange-alt" style="color:#ef4444"></i>
-        Up/Down Döngüsü
-    </button>
-    <button class="nav-btn" onclick="loadFrame(this,'report_errors.php')"
-            data-label="Hata / Drop">
-        <i class="fas fa-bug" style="color:#f59e0b"></i>
-        Hata / Drop
     </button>
 
     <div class="nav-spacer"></div>
