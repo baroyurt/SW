@@ -30,7 +30,8 @@ $sql = "
         sd.name        AS switch_name,
         sd.ip_address,
         mdr.device_name AS conn_device,
-        psd.poll_timestamp
+        psd.poll_timestamp,
+        psd.last_counter_reset_at
     FROM port_status_data psd
     JOIN snmp_devices sd ON sd.id = psd.device_id
     LEFT JOIN mac_device_registry mdr ON mdr.mac_address = psd.mac_address
@@ -47,6 +48,11 @@ $sql = "
         psd.port_number
 ";
 $result = $conn->query($sql);
+// If query fails (e.g. last_counter_reset_at column not yet migrated), retry without it
+if (!$result) {
+    $sql = str_replace("\n        psd.last_counter_reset_at,", '', $sql);
+    $result = $conn->query($sql);
+}
 $ports  = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 $cnt    = count($ports);
 
@@ -122,6 +128,7 @@ sort($switchList);
     .val-err  { color:var(--danger);  font-weight:700; }
     .val-warn { color:var(--warning); font-weight:700; }
     .val-zero { color:#475569; }
+    .badge-counter-reset { display:inline-block; margin-left:6px; background:#0c2340; color:#60a5fa; border:1px solid #1d4ed8; padding:1px 7px; border-radius:10px; font-size:10px; font-weight:600; cursor:default; white-space:nowrap; }
     .badge-vlan { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; background:#0f1f3a; color:#93c5fd; border:1px solid #1d4ed8; }
     .badge-up   { background:#0d2b1a; color:#4ade80; border:1px solid #16a34a; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; }
     .badge-down { background:#2b0d0d; color:#f87171; border:1px solid #b91c1c; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; }
@@ -267,6 +274,21 @@ sort($switchList);
                     $statusClass = ($row['oper_status'] === 'up') ? 'badge-up' : 'badge-down';
                     $statusText  = strtoupper($row['oper_status'] ?? 'UNKNOWN');
 
+                    // Counter reset detection badge
+                    $resetBadge = '';
+                    if (!empty($row['last_counter_reset_at'])) {
+                        $resetTs = strtotime($row['last_counter_reset_at']);
+                        $diffSec = time() - $resetTs;
+                        if ($diffSec < 86400) { // within 24 hours
+                            if ($diffSec < 3600) {
+                                $diffStr = round($diffSec / 60) . ' dk önce';
+                            } else {
+                                $diffStr = round($diffSec / 3600, 1) . ' sa önce';
+                            }
+                            $resetBadge = '<span class="badge-counter-reset" title="' . date('d.m.Y H:i', $resetTs) . ' tarihinde sayaç sıfırlandı">↺ Sıfırlandı ' . $diffStr . '</span>';
+                        }
+                    }
+
                     // data attributes for type filter
                     $typeAttr = '';
                     if ($inErr  > 0) $typeAttr .= ' in_errors';
@@ -295,7 +317,7 @@ sort($switchList);
                     <td><span class="<?= $statusClass ?>"><?= $statusText ?></span></td>
                     <td><span class="<?= $inErr  > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($inErr)  ?></span></td>
                     <td><span class="<?= $outErr > 0 ? 'val-err'  : 'val-zero' ?>"><?= number_format($outErr) ?></span></td>
-                    <td><span class="<?= $inDis  > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($inDis)  ?></span></td>
+                    <td><span class="<?= $inDis  > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($inDis)  ?></span><?= $resetBadge ?></td>
                     <td><span class="<?= $outDis > 0 ? 'val-warn' : 'val-zero' ?>"><?= number_format($outDis) ?></span></td>
                     <td><span class="total-issues"><?= number_format($total) ?></span></td>
                     <td style="color:var(--text-light);font-size:11px"><?= $ts ?></td>

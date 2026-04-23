@@ -322,6 +322,25 @@ class DatabaseManager:
                     and (not new_vlan_id or new_vlan_id <= 1)):
                 port_data['vlan_id'] = existing_port.vlan_id
 
+            # Counter reset detection: when ifInDiscards, ifOutDiscards,
+            # ifInErrors, or ifOutErrors drops to less than half the stored
+            # value (and the stored value is meaningfully large), it means
+            # the switch operator ran "clear counters" on the interface.
+            # Record the reset time so the UI can show a "counter reset" badge.
+            _RESET_MIN_OLD = 10_000  # only flag if old value is substantial
+            for _counter_col in ('in_discards', 'out_discards', 'in_errors', 'out_errors'):
+                new_val = port_data.get(_counter_col)
+                old_val = getattr(existing_port, _counter_col, None)
+                if (new_val is not None and old_val is not None
+                        and old_val > _RESET_MIN_OLD
+                        and new_val < old_val * 0.5):
+                    existing_port.last_counter_reset_at = datetime.utcnow()
+                    self.logger.info(
+                        f"Counter reset detected on device {device.name} port {port_number}: "
+                        f"{_counter_col} {old_val:,} → {new_val:,}"
+                    )
+                    break  # one reset timestamp is enough per poll cycle
+
             # Update in-place (UPSERT): keeps first_seen, updates everything else.
             existing_port.admin_status = admin_status
             existing_port.oper_status = oper_status
