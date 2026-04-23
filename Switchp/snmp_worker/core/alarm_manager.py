@@ -161,7 +161,7 @@ class AlarmManager:
             if all_rows and all_rows[0] > 0:
                 return [r[0] for r in rows if r[0]]
         except Exception as exc:
-            self.logger.debug(f"alarm_user_email_config not available, using global to_addresses: {exc}")
+            self.logger.warning(f"alarm_user_email_config query failed, using global to_addresses: {exc}")
         return None
 
     def _log_email(self, session: Session, subject: str, recipients: list,

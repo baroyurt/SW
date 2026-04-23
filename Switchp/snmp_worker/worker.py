@@ -415,6 +415,35 @@ class SNMPWorker:
             # Non-fatal: fall back to hardcoded defaults in alarm_manager.py
             self.logger.warning(f"Could not seed alarm_severity_config: {exc}")
 
+    def _ensure_alarm_user_email_config(self):
+        """
+        Create the alarm_user_email_config table if it does not exist.
+        This table stores per-user per-alarm-type email notification preferences
+        and is managed via the PHP admin UI (Alarm Seviyeleri → Email Alıcıları).
+        Creating it here ensures the Python worker can query it even before the
+        admin UI has been used for the first time.
+        """
+        from sqlalchemy import text as _text
+
+        DDL = """
+        IF OBJECT_ID('dbo.alarm_user_email_config', 'U') IS NULL BEGIN
+            CREATE TABLE alarm_user_email_config (
+                alarm_type    VARCHAR(100) NOT NULL,
+                user_id       INT          NOT NULL,
+                email_enabled BIT          NOT NULL DEFAULT 1,
+                CONSTRAINT PK_alarm_user_email_config PRIMARY KEY (alarm_type, user_id)
+            )
+        END
+        """
+
+        try:
+            engine = self.db_manager.engine
+            with engine.begin() as conn:
+                conn.execute(_text(DDL))
+            self.logger.info("alarm_user_email_config: table ready")
+        except Exception as exc:
+            self.logger.warning(f"Could not create alarm_user_email_config: {exc}")
+
     def _initialize_components(self):
         """Initialize all worker components."""
         try:
@@ -432,6 +461,7 @@ class SNMPWorker:
             # migration file), so we create and seed it here on every startup.
             # The INSERT statements are no-ops when the row already exists.
             self._ensure_alarm_severity_config()
+            self._ensure_alarm_user_email_config()
             
             # Notification services
             telegram_service = None

@@ -340,7 +340,7 @@ $clientIp    = $_SERVER['HTTP_X_FORWARDED_FOR']
 $dateHuman   = date('d.m.Y H:i:s');
 
 // Build and send notification email (non-blocking; ignore send errors)
-(function() use ($exportLabel, $username, $fullName, $clientIp, $dateHuman) {
+(function() use ($exportLabel, $username, $fullName, $clientIp, $dateHuman, $conn) {
     $configPath = __DIR__ . '/../snmp_worker/config/config.yml';
     if (!file_exists($configPath)) return;
     $content = @file_get_contents($configPath);
@@ -351,11 +351,45 @@ $dateHuman   = date('d.m.Y H:i:s');
         $content, $m
     ) || $m[1] !== 'true') return;
 
-    $toAddresses = [];
+    // Resolve global to_addresses from YAML (fallback)
+    $globalAddresses = [];
     if (preg_match('/to_addresses:\s*((?:\s*-\s*"[^"]*"\s*)+)/', $content, $tm)) {
         preg_match_all('/-\s*"([^"]*)"/', $tm[1], $addrMatches);
-        $toAddresses = array_filter($addrMatches[1]);
+        $globalAddresses = array_values(array_filter($addrMatches[1]));
     }
+
+    // Resolve per-type recipients from alarm_user_email_config for 'excel_export'
+    $toAddresses = $globalAddresses;
+    try {
+        $conn->query(
+            "IF OBJECT_ID('dbo.alarm_user_email_config','U') IS NULL BEGIN " .
+            "CREATE TABLE alarm_user_email_config (" .
+            "alarm_type VARCHAR(100) NOT NULL, user_id INT NOT NULL, email_enabled BIT NOT NULL DEFAULT 1, " .
+            "CONSTRAINT PK_alarm_user_email_config PRIMARY KEY (alarm_type, user_id)" .
+            ") END"
+        );
+        $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM alarm_user_email_config WHERE alarm_type = 'excel_export'");
+        $chk->execute();
+        $chkRow = $chk->get_result()->fetch_assoc();
+        $chk->close();
+        if ((int)($chkRow['cnt'] ?? 0) > 0) {
+            $stmt = $conn->prepare(
+                "SELECT u.email FROM alarm_user_email_config auc " .
+                "JOIN users u ON u.id = auc.user_id " .
+                "WHERE auc.alarm_type = 'excel_export' AND auc.email_enabled = 1 " .
+                "AND u.is_active = 1 AND u.email IS NOT NULL AND LEN(LTRIM(u.email)) > 0"
+            );
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $perTypeAddresses = [];
+            while ($r = $res->fetch_assoc()) {
+                if (!empty($r['email'])) $perTypeAddresses[] = $r['email'];
+            }
+            $stmt->close();
+            $toAddresses = $perTypeAddresses;
+        }
+    } catch (\Throwable $e) { /* ignore, use global list */ }
+
     if (empty($toAddresses)) return;
 
     $subject  = "CHAMADA Excel Export Bildirimi";
