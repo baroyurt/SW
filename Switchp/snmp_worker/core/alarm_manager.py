@@ -59,6 +59,15 @@ class AlarmManager:
         self._core_ports: Dict[tuple, str] = {}
         self._core_ports_loaded_at: Optional[datetime] = None
 
+        # Cache of explicitly registered uplink ports: set of (device_id, port_number).
+        # Loaded from snmp_uplink_ports and refreshed every 60 s so admin UI changes
+        # (adding/removing an uplink port) take effect quickly without a worker restart.
+        # Uplink ports bypass VLAN exclusion so that port_down alarms are always
+        # generated for them regardless of their detected VLAN (e.g. a trunk uplink
+        # carrying VLAN 50 traffic would otherwise be silenced by vlan_exclude).
+        self._uplink_ports: Set[tuple] = set()
+        self._uplink_ports_loaded_at: Optional[datetime] = None
+
         # Per-device monitored port sets.
         # device_name -> set of port numbers that should generate port_down alarms.
         # An empty set means ALL ports are monitored (no filtering).
@@ -529,9 +538,15 @@ class AlarmManager:
         # Apply VLAN exclude list: suppress port_down/port_up for ports whose
         # access VLAN is in the excluded list (these VLANs generate too many alarms).
         # Ports with no VLAN assigned (vlan_id is None) are NOT suppressed.
+        # Exception: ports explicitly registered in snmp_uplink_ports are never
+        # suppressed by VLAN exclusion — they are specifically designated for
+        # up/down monitoring regardless of which VLAN their trunk carries.
         vlan_exclude = self.config.alarms.vlan_exclude
         if vlan_exclude and vlan_id is not None and vlan_id in vlan_exclude:
-            return
+            # Refresh the uplink-ports cache before checking.
+            self._load_uplink_ports(session)
+            if (device.id, port_number) not in self._uplink_ports:
+                return
 
         # Apply per-device monitored_ports filter.
         # If the device has a non-empty monitored_ports list in config, only
@@ -903,3 +918,26 @@ class AlarmManager:
         except Exception as exc:
             # Table may not exist yet (migration pending) — silently skip.
             self.logger.debug(f"Could not load snmp_core_ports (table may not exist yet): {exc}")
+
+    def _load_uplink_ports(self, session: Session) -> None:
+        """Refresh the in-memory uplink-ports cache from snmp_uplink_ports table (TTL=60s).
+
+        Uplink ports are explicitly registered by an admin to be monitored for
+        up/down state only.  They must NOT be silenced by the VLAN exclude list
+        because the trunk link between two switches often uses a VLAN that is
+        in vlan_exclude (e.g. VLAN 50 – DEVICE), which would suppress all
+        port_down alarms for the inter-switch uplink.
+        """
+        now = datetime.utcnow()
+        if (self._uplink_ports_loaded_at is not None and
+                (now - self._uplink_ports_loaded_at).total_seconds() < 60):
+            return
+        try:
+            rows = session.execute(
+                text("SELECT device_id, port_number FROM snmp_uplink_ports")
+            ).fetchall()
+            self._uplink_ports = {(r[0], r[1]) for r in rows}
+            self._uplink_ports_loaded_at = now
+        except Exception as exc:
+            # Table may not exist yet (migration pending) — silently skip.
+            self.logger.debug(f"Could not load snmp_uplink_ports (table may not exist yet): {exc}")

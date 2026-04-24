@@ -436,8 +436,15 @@ class AutoSyncService:
                 # For uplink ports: only track up/down status, skip all MAC collection.
                 is_uplink = port.port_number in uplink_port_numbers
                 if is_uplink:
-                    # Update oper_status only; leave MAC/IP/device/type unchanged
-                    if result:
+                    # Update oper_status only; leave MAC/IP/device/type unchanged.
+                    # Only write when the polled status is definitively 'up' or 'down'.
+                    # Skip the update when psd_oper_status is 'unknown' (e.g. CBS350
+                    # SFP+ port with no module returns ifOperStatus=notPresent which
+                    # maps to PortStatus.UNKNOWN).  Writing 'down' in that case would
+                    # wrongly show an SFP port with no module inserted as "port down"
+                    # in getData.php's fallback path (psd_oper_status='unknown' →
+                    # fallback to ports.oper_status).
+                    if result and port.oper_status.value in ('up', 'down'):
                         session.execute(
                             text("UPDATE ports SET oper_status = :oper_status, updated_at = GETDATE() WHERE id = :id"),
                             {"oper_status": oper_status_str, "id": result[0]}

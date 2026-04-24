@@ -49,7 +49,8 @@ _AP_PORT_MAC_COUNT_THRESHOLD: int = 4
 # monitored; all MAC-change detection is skipped to avoid alarm floods.
 # Format: frozenset of (device_name, port_number) tuples.
 _UPLINK_PORTS: frozenset = frozenset({
-    ("SW38-BEACH", 1),
+    ("SW38-BEACH", 1),   # copper uplink to SW39-BEACH
+    ("SW39-BEACH", 50),  # copper uplink to SW38-BEACH
 })
 
 # AP native VLAN debounce constants.
