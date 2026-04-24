@@ -60,7 +60,8 @@ class EmailNotificationService:
         self,
         subject: str,
         body: str,
-        html_body: Optional[str] = None
+        html_body: Optional[str] = None,
+        recipients: Optional[List[str]] = None
     ) -> bool:
         """
         Send email (async).
@@ -69,12 +70,14 @@ class EmailNotificationService:
             subject: Email subject
             body: Email body (plain text)
             html_body: Optional HTML body
+            recipients: Optional override for recipient list (uses self.to_addresses if None)
             
         Returns:
             True if sent successfully, False otherwise
         """
-        if not self.enabled or not self.to_addresses:
-            self.logger.debug("Email disabled, skipping notification")
+        to_list = recipients if recipients is not None else self.to_addresses
+        if not self.enabled or not to_list:
+            self.logger.debug("Email disabled or no recipients, skipping notification")
             return False
         
         try:
@@ -82,7 +85,7 @@ class EmailNotificationService:
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
             msg['From'] = self.from_address
-            msg['To'] = ', '.join(self.to_addresses)
+            msg['To'] = ', '.join(to_list)
             
             # Attach plain text
             msg.attach(MIMEText(body, 'plain'))
@@ -122,7 +125,8 @@ class EmailNotificationService:
         self,
         subject: str,
         body: str,
-        html_body: Optional[str] = None
+        html_body: Optional[str] = None,
+        recipients: Optional[List[str]] = None
     ) -> bool:
         """
         Send email (sync wrapper).
@@ -131,6 +135,7 @@ class EmailNotificationService:
             subject: Email subject
             body: Email body (plain text)
             html_body: Optional HTML body
+            recipients: Optional override for recipient list (uses self.to_addresses if None)
             
         Returns:
             True if sent successfully, False otherwise
@@ -143,11 +148,11 @@ class EmailNotificationService:
             # RuntimeError in Python 3.10+ when called from a non-main thread
             # that has no running event loop, which silently broke email in the
             # threaded worker.)
-            return asyncio.run(self.send_email_async(subject, body, html_body))
+            return asyncio.run(self.send_email_async(subject, body, html_body, recipients))
         except RuntimeError as e:
             if "This event loop is already running" in str(e):
                 # Called from inside a running async context — schedule as task.
-                asyncio.ensure_future(self.send_email_async(subject, body, html_body))
+                asyncio.ensure_future(self.send_email_async(subject, body, html_body, recipients))
                 return True
             self.logger.error(f"Error in send_email: {e}")
             return False
@@ -161,7 +166,8 @@ class EmailNotificationService:
         device_ip: str,
         alarm_type: str,
         severity: str,
-        message: str
+        message: str,
+        recipients: Optional[List[str]] = None
     ) -> bool:
         """
         Send alarm notification.
@@ -181,7 +187,7 @@ class EmailNotificationService:
         
         now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
         
-        subject = f"CHAMADA Network Alert"
+        subject = f"CHAMADA Network Alert – {device_name}"
         
         # Plain text body
         body = f"""
@@ -266,7 +272,7 @@ CHAMADA Network Monitoring System
 </table>
 </body></html>"""
         
-        return self.send_email(subject, body, html_body)
+        return self.send_email(subject, body, html_body, recipients)
     
     def send_mac_moved(
         self,
@@ -279,7 +285,8 @@ CHAMADA Network Monitoring System
         mac_address: str,
         message: str,
         vlan_id: Optional[int] = None,
-        severity: str = "HIGH"
+        severity: str = "HIGH",
+        recipients: Optional[List[str]] = None
     ) -> bool:
         """
         Send a MAC-moved notification with Device-A (red) / Device-B (green) HTML layout.
@@ -302,7 +309,7 @@ CHAMADA Network Monitoring System
         severity_upper = severity.upper() if severity else "HIGH"
         now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
 
-        subject = "CHAMADA Network Alert – MAC Hareketi"
+        subject = f"CHAMADA Network Alert – {old_device_name} MAC Hareketi"
 
         # Plain-text body
         body = f"""
@@ -417,14 +424,15 @@ CHAMADA Network Monitoring System
 </table>
 </body></html>"""
 
-        return self.send_email(subject, body, html_body)
+        return self.send_email(subject, body, html_body, recipients)
 
     def send_port_down(
         self,
         device_name: str,
         device_ip: str,
         port_number: int,
-        port_name: str
+        port_name: str,
+        recipients: Optional[List[str]] = None
     ) -> bool:
         """
         Send port down notification.
@@ -434,6 +442,7 @@ CHAMADA Network Monitoring System
             device_ip: Device IP
             port_number: Port number
             port_name: Port name
+            recipients: Optional override for recipient list
             
         Returns:
             True if sent successfully, False otherwise
@@ -441,12 +450,13 @@ CHAMADA Network Monitoring System
         subject = f"[HIGH] Port Kapandı - {device_name} Port {port_number}"
         message = f"{device_name} cihazında Port {port_number} ({port_name}) bağlantısı kesildi."
         
-        return self.send_alarm(device_name, device_ip, "Port Kapandı", "HIGH", message)
+        return self.send_alarm(device_name, device_ip, "Port Kapandı", "HIGH", message, recipients)
     
     def send_device_unreachable(
         self,
         device_name: str,
-        device_ip: str
+        device_ip: str,
+        recipients: Optional[List[str]] = None
     ) -> bool:
         """
         Send device unreachable notification.
@@ -454,6 +464,7 @@ CHAMADA Network Monitoring System
         Args:
             device_name: Device name
             device_ip: Device IP
+            recipients: Optional override for recipient list
             
         Returns:
             True if sent successfully, False otherwise
@@ -461,4 +472,4 @@ CHAMADA Network Monitoring System
         subject = f"[CRITICAL] Device Unreachable - {device_name}"
         message = f"Device {device_name} is not responding to SNMP requests."
         
-        return self.send_alarm(device_name, device_ip, "Device Unreachable", "CRITICAL", message)
+        return self.send_alarm(device_name, device_ip, "Device Unreachable", "CRITICAL", message, recipients)

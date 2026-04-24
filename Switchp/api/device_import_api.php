@@ -142,16 +142,75 @@ function getSmtpConfig() {
 }
 
 /**
+ * Get the list of recipient email addresses for a given mail type.
+ * Queries alarm_user_email_config for per-user settings; falls back to global to_addresses.
+ *
+ * @param string $mailType  e.g. 'excel_export', 'mac_history_cleanup'
+ * @return array  Email address strings, or empty array if none configured
+ */
+function getMailTypeRecipients(string $mailType): array {
+    global $conn;
+    try {
+        // Table may not exist yet — create it if missing
+        $conn->query(
+            "IF OBJECT_ID('dbo.alarm_user_email_config','U') IS NULL BEGIN " .
+            "CREATE TABLE alarm_user_email_config (" .
+            "alarm_type VARCHAR(100) NOT NULL, user_id INT NOT NULL, email_enabled BIT NOT NULL DEFAULT 1, " .
+            "CONSTRAINT PK_alarm_user_email_config PRIMARY KEY (alarm_type, user_id)" .
+            ") END"
+        );
+        // Check whether any per-type rows exist for this mail type
+        $chk = $conn->prepare(
+            "SELECT COUNT(*) AS cnt FROM alarm_user_email_config WHERE alarm_type = ?"
+        );
+        $chk->bind_param('s', $mailType);
+        $chk->execute();
+        $row = $chk->get_result()->fetch_assoc();
+        $chk->close();
+        if ((int)($row['cnt'] ?? 0) === 0) {
+            // No per-type config — fall back to global SMTP to_addresses
+            $cfg = getSmtpConfig();
+            return $cfg ? $cfg['to_addresses'] : [];
+        }
+        // Return emails of users opted-in for this mail type
+        $stmt = $conn->prepare(
+            "SELECT u.email FROM alarm_user_email_config auc " .
+            "JOIN users u ON u.id = auc.user_id " .
+            "WHERE auc.alarm_type = ? AND auc.email_enabled = 1 " .
+            "AND u.is_active = 1 AND u.email IS NOT NULL AND LEN(LTRIM(u.email)) > 0"
+        );
+        $stmt->bind_param('s', $mailType);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $emails = [];
+        while ($r = $result->fetch_assoc()) {
+            $emails[] = $r['email'];
+        }
+        $stmt->close();
+        return $emails;
+    } catch (\Throwable $e) {
+        // On any error fall back to global list
+        $cfg = getSmtpConfig();
+        return $cfg ? $cfg['to_addresses'] : [];
+    }
+}
+
+/**
  * Send an alarm email via SMTP (sync, blocking).
  * Uses fsockopen for port 465 (SSL) or stream_socket_client + STARTTLS for port 587.
  *
  * @param string $subject
  * @param string $htmlBody
+ * @param array|null $recipients  Optional override recipient list; defaults to global to_addresses
  * @return bool
  */
-function sendAlarmEmail(string $subject, string $htmlBody): bool {
+function sendAlarmEmail(string $subject, string $htmlBody, array $recipients = null): bool {
     $cfg = getSmtpConfig();
     if (!$cfg) return false;
+    if ($recipients !== null) {
+        $cfg['to_addresses'] = $recipients;
+    }
+    if (empty($cfg['to_addresses'])) return false;
 
     $boundary = md5(uniqid());
     $plainBody = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $htmlBody));
@@ -238,6 +297,27 @@ function sendAlarmEmail(string $subject, string $htmlBody): bool {
     } catch (\Throwable $e) {
         error_log("sendAlarmEmail error: " . $e->getMessage());
         return false;
+    }
+}
+
+/**
+ * Log an email send to the email_log table (best-effort, ignores errors).
+ */
+function logEmailSent(string $subject, array $recipients, string $mailType, bool $success, string $alarmType = null): void {
+    global $conn;
+    try {
+        $tableCheck = $conn->query("SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_name='email_log'");
+        if (!$tableCheck || !(($r = $tableCheck->fetch_assoc()) && (int)$r['cnt'])) return;
+        $recipientsStr = implode(', ', $recipients);
+        $status = $success ? 'sent' : 'failed';
+        $stmt = $conn->prepare(
+            "INSERT INTO email_log (sent_at, subject, recipients, alarm_type, mail_type, status) VALUES (NOW(), ?, ?, ?, ?, ?)"
+        );
+        $stmt->bind_param('sssss', $subject, $recipientsStr, $alarmType, $mailType, $status);
+        $stmt->execute();
+        $stmt->close();
+    } catch (\Throwable $e) {
+        // Silently ignore
     }
 }
 
@@ -861,7 +941,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Dosya adı:</strong> " . htmlspecialchars($filename) . "</p>"
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Kayıt sayısı:</strong> <span style='color:#d4a017;font-weight:700;'>{$recordCount}</span></p>";
                 $body = chamada_email_template('Excel Export Bildirimi', $dlContent, $downloadedBy, $dlFullName, $dlClientIp);
-                sendAlarmEmail($subj, $body);
+                $excelRecipients = getMailTypeRecipients('excel_export');
+                $emailSuccess = sendAlarmEmail($subj, $body, $excelRecipients ?: null);
+                logEmailSent($subj, $excelRecipients, 'excel_export', $emailSuccess);
             }
 
             header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -1170,7 +1252,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 SELECT mac_address, ip_address, device_name
                 FROM mac_device_registry
                 WHERE mac_address IS NOT NULL
-                  AND ip_address IS NOT NULL
                   AND device_name IS NOT NULL
                   AND (source IS NULL OR source != 'snmp_hub_auto')
             ");
@@ -1178,9 +1259,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             if ($regResult) {
                 while ($device = $regResult->fetch_assoc()) {
                     $mac          = $device['mac_address'];
-                    $ip           = $device['ip_address'];
+                    $ip           = $device['ip_address'] ?? '';
                     $hostname     = $device['device_name'];
-                    if (empty($ip) || !validateIP($ip)) { continue; }
+                    // Skip only when ip is non-empty AND invalid (e.g. VLAN label string).
+                    // Devices imported without an IP are still applied (device name written,
+                    // existing port IP preserved via COALESCE in the UPDATE statement).
+                    if (!empty($ip) && !validateIP($ip)) { continue; }
                     $macNormalized = strtolower(str_replace(':', '', $mac));
 
                     $checkStmt = $conn->prepare("
@@ -1233,7 +1317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     if ($trackingPortId !== null) {
                         $updStmt = $conn->prepare("
                             UPDATE ports
-                            SET ip = ?, device = ?,
+                            SET ip = COALESCE(NULLIF(?, ''), ip), device = ?,
                                 mac = CASE WHEN (mac IS NULL OR mac = '') THEN ? ELSE CONCAT(mac, ',', ?) END
                             WHERE id = ?
                               AND CHARINDEX(?, LOWER(REPLACE(COALESCE(mac,''), ':', ''))) = 0
@@ -1250,7 +1334,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                         } else { $apply_already_current[] = $mac; }
                     } else {
                         $updateStmt = $conn->prepare("
-                            UPDATE ports WITH (ROWLOCK) SET ip = ?, device = ?
+                            UPDATE ports WITH (ROWLOCK)
+                            SET ip = COALESCE(NULLIF(?, ''), ip), device = ?
                             WHERE CHARINDEX(?, LOWER(REPLACE(mac, ':', ''))) > 0
                             AND mac IS NOT NULL AND mac != ''
                         ");
@@ -1408,7 +1493,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Atlanan (mevcut aktif alarm):</strong> {$scan_skipped}</p>"
                     . "<p style='margin:16px 0 0;color:#8899bb;font-size:13px;'>Kayıtsız cihazları kayıt altına almak için <em>Device Import</em> sayfasını ziyaret edin.</p>";
                 $htmlBody = chamada_email_template('Kayıtsız MAC Alarm Özeti', $macContent);
-                sendAlarmEmail($subject, $htmlBody);
+                $emailResult = sendAlarmEmail($subject, $htmlBody);
+                $cfg = getSmtpConfig();
+                if ($cfg) logEmailSent($subject, $cfg['to_addresses'] ?? [], 'alarm', $emailResult, 'unregistered_mac');
             }
 
             echo json_encode([
@@ -1583,7 +1670,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     . "<p style='margin:4px 0;'><strong style='color:#8899bb;'>Atlanan (mevcut aktif alarm):</strong> {$alarms_skipped}</p>"
                     . "<p style='margin:16px 0 0;color:#8899bb;font-size:13px;'>Kayıtsız cihazları kayıt altına almak için <em>Device Import</em> sayfasını ziyaret edin.</p>";
                 $htmlBody = chamada_email_template('Kayıtsız MAC Alarm Özeti', $macContent2);
-                sendAlarmEmail($subject, $htmlBody);
+                $emailResult2 = sendAlarmEmail($subject, $htmlBody);
+                $cfg2 = getSmtpConfig();
+                if ($cfg2) logEmailSent($subject, $cfg2['to_addresses'] ?? [], 'alarm', $emailResult2, 'unregistered_mac');
             }
 
             echo json_encode([
@@ -1611,11 +1700,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             // as placeholders, not real IP addresses or hostnames. Writing them to the
             // ports table would corrupt the port display with VLAN-name strings.
             // Only excel/manual entries (real user-supplied data) should be applied.
+            // ip_address is NOT required: devices imported with MAC + device_name only
+            // are still applied (existing port IP is preserved via COALESCE in the UPDATE).
             $result = $conn->query("
                 SELECT mac_address, ip_address, device_name 
                 FROM mac_device_registry 
                 WHERE mac_address IS NOT NULL 
-                AND ip_address IS NOT NULL 
                 AND device_name IS NOT NULL
                 AND (source IS NULL OR source != 'snmp_hub_auto')
             ");
@@ -1648,15 +1738,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             // For each device, find and update matching ports
             while ($device = $result->fetch_assoc()) {
                 $mac = $device['mac_address'];
-                $ip = $device['ip_address'];
+                $ip = $device['ip_address'] ?? '';
                 $hostname = $device['device_name'];
 
-                // Skip entries where ip_address is not a valid IP address.
+                // Skip entries where ip_address is present but not a valid IP address.
                 // VLAN labels (e.g. "50", "JACKPOT") may appear as placeholders
                 // in registry entries whose source was previously 'snmp_hub_auto'
                 // or that were imported with non-IP values.  Writing such strings
                 // to ports.ip corrupts the hub-port display in the UI.
-                if (empty($ip) || !validateIP($ip)) {
+                // Empty/NULL ip_address is allowed: only the device name is written and
+                // the existing port IP is preserved via COALESCE in the UPDATE statement.
+                if (!empty($ip) && !validateIP($ip)) {
                     continue;
                 }
 
@@ -1734,9 +1826,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     // ports.mac).  Update the port's device label and IP by ID,
                     // and append the MAC to ports.mac so future FIND_IN_SET
                     // checks work without requiring another tracking lookup.
+                    // COALESCE(NULLIF(ip, ''), existing_ip) preserves the current
+                    // port IP when no IP was supplied in the registry entry.
                     $updStmt = $conn->prepare("
                         UPDATE ports
-                        SET ip     = ?,
+                        SET ip     = COALESCE(NULLIF(?, ''), ip),
                             device = ?,
                             mac    = CASE
                                          WHEN (mac IS NULL OR mac = '') THEN ?
@@ -1770,9 +1864,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     // it stores panel connection JSON (written by saveportwithpanel.php /
                     // paneltoswitchconnection.php) and must not be overwritten with a
                     // plain hostname string from the MAC registry.
+                    // COALESCE(NULLIF(ip, ''), existing_ip) preserves the current
+                    // port IP when no IP was supplied in the registry entry.
                     $updateStmt = $conn->prepare("
                         UPDATE ports WITH (ROWLOCK)
-                        SET ip = ?, 
+                        SET ip = COALESCE(NULLIF(?, ''), ip), 
                             device = ?
                         WHERE CHARINDEX(?, LOWER(REPLACE(mac, ':', ''))) > 0
                         AND mac IS NOT NULL 

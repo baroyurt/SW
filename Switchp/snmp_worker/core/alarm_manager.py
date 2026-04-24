@@ -59,6 +59,15 @@ class AlarmManager:
         self._core_ports: Dict[tuple, str] = {}
         self._core_ports_loaded_at: Optional[datetime] = None
 
+        # Cache of explicitly registered uplink ports: set of (device_id, port_number).
+        # Loaded from snmp_uplink_ports and refreshed every 60 s so admin UI changes
+        # (adding/removing an uplink port) take effect quickly without a worker restart.
+        # Uplink ports bypass VLAN exclusion so that port_down alarms are always
+        # generated for them regardless of their detected VLAN (e.g. a trunk uplink
+        # carrying VLAN 50 traffic would otherwise be silenced by vlan_exclude).
+        self._uplink_ports: Set[tuple] = set()
+        self._uplink_ports_loaded_at: Optional[datetime] = None
+
         # Per-device monitored port sets.
         # device_name -> set of port numbers that should generate port_down alarms.
         # An empty set means ALL ports are monitored (no filtering).
@@ -66,6 +75,11 @@ class AlarmManager:
             dev.name: set(dev.monitored_ports)
             for dev in config.devices
             if dev.monitored_ports
+        }
+
+        # Set of device names for which port alarms are completely suppressed.
+        self._port_alarms_disabled: Set[str] = {
+            dev.name for dev in config.devices if dev.disable_port_alarms
         }
         
         self.logger.info("Alarm manager initialized")
@@ -134,6 +148,119 @@ class AlarmManager:
             alarm_type in self.config.telegram.notify_on,
             alarm_type in self.config.email.notify_on
         )
+
+    def _is_device_in_maintenance(self, session: Session, device: SNMPDevice) -> bool:
+        """
+        Return True if the device currently has an active maintenance window with
+        suppress_alarms = 1.  Recurring windows (recur_days + recur_start/recur_end)
+        are also evaluated against the current local time.
+        Falls back to False on any DB error so alarms are never silently dropped.
+        """
+        try:
+            now = datetime.now()
+            # 1. Check one-shot windows
+            row = session.execute(
+                text(
+                    "SELECT TOP 1 id FROM maintenance_windows "
+                    "WHERE suppress_alarms = 1 "
+                    "AND (device_id = :did OR device_name = :dname OR (device_id IS NULL AND device_name IS NULL)) "
+                    "AND start_time <= :now AND end_time >= :now "
+                    "AND (recurring = 0 OR recurring IS NULL)"
+                ),
+                {"did": device.id, "dname": device.name, "now": now}
+            ).fetchone()
+            if row:
+                return True
+
+            # 2. Check recurring windows – match on day-of-week and time range.
+            # recur_days is stored as comma-separated weekday numbers (0=Mon … 6=Sun)
+            # using Python's weekday() convention.  recur_start / recur_end are TIME.
+            weekday = str(now.weekday())  # '0'..'6'
+            current_time = now.time()
+            recurring_rows = session.execute(
+                text(
+                    "SELECT recur_days, recur_start, recur_end FROM maintenance_windows "
+                    "WHERE suppress_alarms = 1 AND recurring = 1 "
+                    "AND (device_id = :did OR device_name = :dname OR (device_id IS NULL AND device_name IS NULL))"
+                ),
+                {"did": device.id, "dname": device.name}
+            ).fetchall()
+            for r in recurring_rows:
+                recur_days, recur_start, recur_end = r[0], r[1], r[2]
+                if recur_days and weekday not in [d.strip() for d in str(recur_days).split(',')]:
+                    continue
+                if recur_start and recur_end:
+                    # recur_start / recur_end may come back as datetime.time or timedelta
+                    def _to_time(val):
+                        import datetime as _dt
+                        if isinstance(val, _dt.time):
+                            return val
+                        if isinstance(val, _dt.timedelta):
+                            total = int(val.total_seconds())
+                            return _dt.time(total // 3600, (total % 3600) // 60, total % 60)
+                        return None
+                    t_start = _to_time(recur_start)
+                    t_end = _to_time(recur_end)
+                    if t_start and t_end and not (t_start <= current_time <= t_end):
+                        continue
+                return True
+        except Exception as exc:
+            self.logger.debug(f"maintenance_windows check failed (non-fatal): {exc}")
+        return False
+
+    def _get_alarm_email_recipients(self, session: Session, alarm_type: str) -> Optional[list]:
+        """
+        Return a filtered list of email addresses for this alarm type based on
+        per-user settings stored in alarm_user_email_config joined with users.
+        Returns None when the table does not exist or has no rows for this alarm
+        type (caller should fall back to the global to_addresses list).
+        """
+        try:
+            rows = session.execute(
+                text(
+                    "SELECT u.email FROM alarm_user_email_config auc "
+                    "JOIN users u ON u.id = auc.user_id "
+                    "WHERE auc.alarm_type = :t AND auc.email_enabled = 1 "
+                    "AND u.is_active = 1 AND u.email IS NOT NULL AND u.email != ''"
+                ),
+                {"t": alarm_type}
+            ).fetchall()
+            # Only return a filtered list if at least one row exists for this alarm type;
+            # if the table is empty for this alarm type we fall back to global list.
+            all_rows = session.execute(
+                text("SELECT COUNT(*) FROM alarm_user_email_config WHERE alarm_type = :t"),
+                {"t": alarm_type}
+            ).fetchone()
+            if all_rows and all_rows[0] > 0:
+                return [r[0] for r in rows if r[0]]
+        except Exception as exc:
+            self.logger.warning(f"alarm_user_email_config query failed, using global to_addresses: {exc}")
+        return None
+
+    def _log_email(self, session: Session, subject: str, recipients: list,
+                   alarm_type: str, mail_type: str, status: str, error_msg: str = None) -> None:
+        """
+        Insert a row into email_log if the table exists.
+        Silently ignores errors (table may not exist on older deployments).
+        """
+        try:
+            recipients_str = ', '.join(recipients) if recipients else ''
+            session.execute(
+                text(
+                    "IF OBJECT_ID('dbo.email_log','U') IS NOT NULL "
+                    "INSERT INTO email_log (sent_at, subject, recipients, alarm_type, mail_type, status, error_msg) "
+                    "VALUES (GETDATE(), :s, :r, :at, :mt, :st, :em)"
+                ),
+                {"s": subject[:500] if subject else None,
+                 "r": recipients_str[:2000] if recipients_str else None,
+                 "at": alarm_type[:100] if alarm_type else None,
+                 "mt": mail_type[:100] if mail_type else None,
+                 "st": status[:20],
+                 "em": error_msg[:1000] if error_msg else None}
+            )
+            session.commit()
+        except Exception as exc:
+            self.logger.debug(f"Could not log email send: {exc}")
 
     def _send_notifications(
         self,
@@ -208,27 +335,48 @@ class AlarmManager:
         
         # Send email notification
         if email_notify:
+            # Resolve per-user recipient list for this alarm type
+            email_recipients = None
+            if session is not None:
+                email_recipients = self._get_alarm_email_recipients(session, alarm_type)
+            effective_recipients = email_recipients if email_recipients is not None else self.email_service.to_addresses
+            subject_map = {
+                "port_down": f"[HIGH] Port Kapandı - {device.name}",
+                "device_unreachable": f"[CRITICAL] Device Unreachable - {device.name}",
+                "mac_moved": "CHAMADA Network Alert – MAC Hareketi",
+            }
+            email_subject = subject_map.get(alarm_type, f"CHAMADA Network Alert - {alarm_type}")
             try:
                 if alarm_type == "port_down" and port_number:
                     self.email_service.send_port_down(
-                        device.name, device.ip_address, port_number, port_name or ""
+                        device.name, device.ip_address, port_number, port_name or "",
+                        recipients=email_recipients
                     )
                 elif alarm_type == "device_unreachable":
                     self.email_service.send_device_unreachable(
-                        device.name, device.ip_address
+                        device.name, device.ip_address,
+                        recipients=email_recipients
                     )
                 elif alarm_type == "mac_moved" and extra_data:
                     self.email_service.send_mac_moved(
                         severity=severity_upper,
                         message=message,
+                        recipients=email_recipients,
                         **extra_data
                     )
                 else:
                     self.email_service.send_alarm(
-                        device.name, device.ip_address, alarm_type, severity_upper, message
+                        device.name, device.ip_address, alarm_type, severity_upper, message,
+                        recipients=email_recipients
                     )
+                if session is not None:
+                    self._log_email(session, email_subject, effective_recipients,
+                                    alarm_type, "alarm", "sent")
             except Exception as e:
                 self.logger.error(f"Failed to send email notification: {e}")
+                if session is not None:
+                    self._log_email(session, email_subject, effective_recipients,
+                                    alarm_type, "alarm", "failed", str(e))
     
     def check_device_reachability(
         self,
@@ -248,6 +396,11 @@ class AlarmManager:
         alarm_key = f"{device.id}_{alarm_type}"
         
         if not is_reachable:
+            # Skip alarms during active maintenance windows with suppress_alarms=1
+            if self._is_device_in_maintenance(session, device):
+                self.logger.debug(f"Device {device.name}: maintenance window active, alarm suppressed")
+                return
+
             # Only raise the alarm after the device has failed at least
             # `unreachable_threshold` consecutive polls.  This prevents
             # instant false-positive alarms for newly-added switches that
@@ -390,9 +543,21 @@ class AlarmManager:
         # Apply VLAN exclude list: suppress port_down/port_up for ports whose
         # access VLAN is in the excluded list (these VLANs generate too many alarms).
         # Ports with no VLAN assigned (vlan_id is None) are NOT suppressed.
+        # Exception: ports explicitly registered in snmp_uplink_ports are never
+        # suppressed by VLAN exclusion — they are specifically designated for
+        # up/down monitoring regardless of which VLAN their trunk carries.
+
+        # Suppress all port alarms for devices that have disable_port_alarms: true.
+        if device.name in self._port_alarms_disabled:
+            self._port_states[(device.id, port_number)] = oper_status
+            return
+
         vlan_exclude = self.config.alarms.vlan_exclude
         if vlan_exclude and vlan_id is not None and vlan_id in vlan_exclude:
-            return
+            # Refresh the uplink-ports cache before checking.
+            self._load_uplink_ports(session)
+            if (device.id, port_number) not in self._uplink_ports:
+                return
 
         # Apply per-device monitored_ports filter.
         # If the device has a non-empty monitored_ports list in config, only
@@ -421,7 +586,13 @@ class AlarmManager:
             # No state change
             return
         
-        # State changed
+        # State changed — check for active maintenance window before creating alarms
+        if self._is_device_in_maintenance(session, device):
+            self.logger.debug(
+                f"Device {device.name} port {port_number}: maintenance window active, alarm suppressed"
+            )
+            return
+
         # Refresh core-port cache and check whether this port is a core uplink.
         self._load_core_ports(session)
         core_switch_name = self._core_ports.get((device.id, port_number))
@@ -758,3 +929,26 @@ class AlarmManager:
         except Exception as exc:
             # Table may not exist yet (migration pending) — silently skip.
             self.logger.debug(f"Could not load snmp_core_ports (table may not exist yet): {exc}")
+
+    def _load_uplink_ports(self, session: Session) -> None:
+        """Refresh the in-memory uplink-ports cache from snmp_uplink_ports table (TTL=60s).
+
+        Uplink ports are explicitly registered by an admin to be monitored for
+        up/down state only.  They must NOT be silenced by the VLAN exclude list
+        because the trunk link between two switches often uses a VLAN that is
+        in vlan_exclude (e.g. VLAN 50 – DEVICE), which would suppress all
+        port_down alarms for the inter-switch uplink.
+        """
+        now = datetime.utcnow()
+        if (self._uplink_ports_loaded_at is not None and
+                (now - self._uplink_ports_loaded_at).total_seconds() < 60):
+            return
+        try:
+            rows = session.execute(
+                text("SELECT device_id, port_number FROM snmp_uplink_ports")
+            ).fetchall()
+            self._uplink_ports = {(r[0], r[1]) for r in rows}
+            self._uplink_ports_loaded_at = now
+        except Exception as exc:
+            # Table may not exist yet (migration pending) — silently skip.
+            self.logger.debug(f"Could not load snmp_uplink_ports (table may not exist yet): {exc}")

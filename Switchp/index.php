@@ -8,6 +8,9 @@ $auth->requireLogin();
 
 $currentUser = $auth->getUser();
 
+// Embed mode: hide sidebar/nav when loaded inside an iframe (e.g. reports.php inline panel)
+$embedMode = !empty($_GET['embed']);
+
 // Prevent caching to avoid stale JavaScript issues
 header("Cache-Control: no-cache, no-store, must-revalidate, max-age=0");
 header("Pragma: no-cache");
@@ -808,6 +811,52 @@ header("Expires: 0");
             padding: 30px;
             border: 2px solid rgba(56, 189, 248, 0.3);
             margin-bottom: 30px;
+        }
+
+        /* Embed mode: hide chrome, show only switch detail panel (used by reports.php inline panel) */
+        body.embed-mode .sidebar,
+        body.embed-mode .sidebar-toggle,
+        body.embed-mode .home-button,
+        body.embed-mode .loading-screen { display: none !important; }
+        body.embed-mode .main-content {
+            margin-left: 0 !important;
+            padding: 16px !important;
+            min-height: unset !important;
+        }
+        body.embed-mode .page-content { display: none !important; }
+        /* Keep detail panel visible but not full-screen fixed in embed mode */
+        body.embed-mode #detail-panel {
+            display: block !important;
+            opacity: 1 !important;
+            transform: none !important;
+        }
+        body.embed-mode #detail-panel.from-reports {
+            position: static !important;
+            background: transparent !important;
+        }
+
+        /* When port detail is triggered from an embedded iframe (e.g. reports),
+           float it over the current page instead of navigating away */
+        .detail-panel.from-reports {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 950;
+            margin: 0;
+            border-radius: 0;
+            overflow-y: auto;
+            padding: 30px;
+            /* fully opaque so sidebar is hidden */
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        }
+        .detail-panel.from-reports .btn-close-overlay {
+            display: inline-flex !important;
+        }
+        /* Hidden by default; shown only in from-reports mode */
+        .btn-close-overlay {
+            display: none !important;
         }
         
         .detail-header {
@@ -1777,7 +1826,7 @@ header("Expires: 0");
 		
     </style>
 </head>
-<body>
+<body<?= $embedMode ? ' class="embed-mode"' : '' ?>>
     <!-- Loading Screen -->
     <div class="loading-screen" id="loading-screen">
         <div class="loader">
@@ -1827,12 +1876,16 @@ header("Expires: 0");
                 <span>Port Değişiklik Alarmları</span>
                 <span id="alarm-badge" class="alarm-badge" style="display: none;">0</span>
             </button>
-            <button class="nav-item" data-page="device-import">
-                <i class="fas fa-file-import"></i>
-                <span>Device Import</span>
-            </button>
         </div>
         
+        <div class="nav-section">
+            <div class="nav-title">Raporlar</div>
+            <button class="nav-item" data-page="reports" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3);">
+                <i class="fas fa-chart-bar"></i>
+                <span>Raporlar</span>
+            </button>
+        </div>
+
         <?php if ($currentUser['role'] === 'admin'): ?>
         <div class="nav-section">
             <div class="nav-title">SNMP Admin</div>
@@ -1983,6 +2036,12 @@ header("Expires: 0");
                     </div>
                 </div>
                 <div style="display: flex; gap: 10px;">
+                    <a id="detail-fullpage-link" class="btn btn-secondary btn-close-overlay" href="#" target="_blank" style="text-decoration:none;">
+                        <i class="fas fa-external-link-alt"></i> Tam Sayfada Aç
+                    </a>
+                    <button class="btn btn-secondary btn-close-overlay" onclick="hideDetailPanel()">
+                        <i class="fas fa-times"></i> Kapat
+                    </button>
                     <button class="btn btn-secondary" onclick="window.open('pages/admin.php', '_blank')">
                         <i class="fas fa-cogs"></i> Yönetim Paneli
                     </button>
@@ -2097,6 +2156,16 @@ header("Expires: 0");
                     style="width: 100%; height: calc(100vh - 150px); border: none; border-radius: 15px; background: var(--dark);"
                     onload="this.style.display='block'"
                     onerror="this.innerHTML='<div style=padding:20px;text-align:center;color:red;>Error loading device import page</div>'">
+            </iframe>
+        </div>
+
+        <!-- Reports Page -->
+        <div class="page-content" id="page-reports">
+            <!-- Reports Component (same-origin trusted PHP file, no sandbox needed) -->
+            <iframe src="pages/reports.php" 
+                    style="width: 100%; height: calc(100vh - 60px); border: none; border-radius: 15px; background: var(--dark);"
+                    onload="this.style.display='block'"
+                    onerror="this.innerHTML='<div style=padding:20px;text-align:center;color:red;>Error loading reports page</div>'">
             </iframe>
         </div>
     </div>
@@ -7197,6 +7266,9 @@ else if (panelType === 'fiber') {
                     // Note: iframe includes sandbox attribute for security
                     // and error handling for loading failures
                     break;
+                case 'reports':
+                    // Reports page is loaded via iframe
+                    break;
             }
         }
 
@@ -8506,6 +8578,7 @@ if (isHub) {
         function hideDetailPanel() {
             const detailPanel = document.getElementById('detail-panel');
             detailPanel.style.display = 'none';
+            detailPanel.classList.remove('from-reports');
             selectedSwitch = null;
         }
 
@@ -8649,19 +8722,22 @@ if (isHub) {
                             arr.slice(0, 6).forEach((it, idx) => {
                                 const rawName = (it.device || it.name || '').trim();
                                 const isGeneric = rawName === '' || /^Cihaz\s+\d+$/i.test(rawName);
-                                // Use IP as hostname when no real name stored
-                                const displayName = isGeneric
+                                // Prefer registry device_name from API over generic placeholder
+                                const apiName = (isGeneric && d.conn_device_name) ? d.conn_device_name : '';
+                                const displayName = apiName || (isGeneric
                                     ? (it.ip || it.mac || rawName || `Cihaz ${idx+1}`)
-                                    : rawName;
+                                    : rawName);
+                                const isResolved = !!(apiName || !isGeneric);
                                 // Suppress MAC: field when it equals the display name (avoids duplication)
                                 const macUpper  = it.mac ? it.mac.toUpperCase() : '';
                                 const nameUpper = displayName.toUpperCase();
                                 const macIsSameName = macUpper && macUpper === nameUpper;
                                 connRows += `<div class="snmp-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;">`;
-                                connRows += `<span class="snmp-value" style="font-size:0.82rem;color:${isGeneric?'#94a3b8':'#e2e8f0'};">${escapeHtml(displayName)}</span>`;
-                                if (it.ip) {
-                                    connRows += `<span style="font-family:monospace;font-size:0.78rem;color:#7dd3fc;">IP: ${escapeHtml(it.ip)}</span>`;
-                                } else if (!isGeneric) {
+                                connRows += `<span class="snmp-value" style="font-size:0.82rem;color:${isResolved?'#e2e8f0':'#94a3b8'};">${escapeHtml(displayName)}</span>`;
+                                const displayIp = it.ip || (d.conn_device_ip && idx === 0 ? d.conn_device_ip : '');
+                                if (displayIp) {
+                                    connRows += `<span style="font-family:monospace;font-size:0.78rem;color:#7dd3fc;">IP: ${escapeHtml(displayIp)}</span>`;
+                                } else if (isResolved) {
                                     // Named device with no IP → show placeholder so layout matches devices that have IPs
                                     connRows += `<span style="font-family:monospace;font-size:0.78rem;color:var(--text-light);">IP: —</span>`;
                                 }
@@ -8672,10 +8748,12 @@ if (isHub) {
                     } catch(e) { /* ignore */ }
                 }
                 if (!connRows) {
-                    if (connDevice) connRows += `<div class="snmp-row"><span class="snmp-label">Hostname</span><span class="snmp-value">${escapeHtml(connDevice)}</span></div>`;
-                    if (connIp)     connRows += `<div class="snmp-row"><span class="snmp-label">IP</span><span class="snmp-value" style="font-family:monospace">${escapeHtml(connIp.split(',')[0].trim())}</span></div>`;
-                    else if (connDevice) connRows += `<div class="snmp-row"><span class="snmp-label">IP</span><span class="snmp-value" style="font-family:monospace;color:var(--text-light);">—</span></div>`;
-                    if (connMac)    connRows += `<div class="snmp-row"><span class="snmp-label">MAC</span><span class="snmp-value" style="font-family:monospace;font-size:0.8rem">${escapeHtml(connMac.split(',')[0].trim())}</span></div>`;
+                    const hostname = connDevice || d.conn_device_name || '';
+                    const ip       = connIp || d.conn_device_ip || '';
+                    if (hostname) connRows += `<div class="snmp-row"><span class="snmp-label">Hostname</span><span class="snmp-value">${escapeHtml(hostname)}</span></div>`;
+                    if (ip)       connRows += `<div class="snmp-row"><span class="snmp-label">IP</span><span class="snmp-value" style="font-family:monospace">${escapeHtml(ip.split(',')[0].trim())}</span></div>`;
+                    else if (hostname) connRows += `<div class="snmp-row"><span class="snmp-label">IP</span><span class="snmp-value" style="font-family:monospace;color:var(--text-light);">—</span></div>`;
+                    if (connMac)  connRows += `<div class="snmp-row"><span class="snmp-label">MAC</span><span class="snmp-value" style="font-family:monospace;font-size:0.8rem">${escapeHtml(connMac.split(',')[0].trim())}</span></div>`;
                 }
 
                 // Build side-by-side section: Panel Detayı (left) + Mevcut Bağlantı (right)
@@ -10707,7 +10785,10 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
         // Handle URL parameters (e.g., switch_id from admin.php)
         function handleURLParameters() {
             const urlParams = new URLSearchParams(window.location.search);
-            const switchId = urlParams.get('switch_id');
+            const switchId   = urlParams.get('switch_id');
+            const switchName = urlParams.get('switch');
+            const portNumber = urlParams.get('port') || urlParams.get('highlight_port');
+            const isEmbed    = document.body.classList.contains('embed-mode');
             
             if (switchId) {
                 // Find the switch by ID
@@ -10724,6 +10805,25 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
                 // Clean URL without reloading page
                 const cleanUrl = window.location.pathname;
                 window.history.replaceState({}, document.title, cleanUrl);
+            } else if (switchName) {
+                // Navigate to switch detail by name (used by reports "Porta Git")
+                const sw = switches.find(s => s.name === switchName);
+                if (sw) {
+                    if (!isEmbed) {
+                        // Normal mode: navigate to switches page first
+                        switchPage('switches');
+                    }
+                    // In embed mode just show the detail panel directly (no page transition)
+                    setTimeout(() => {
+                        showSwitchDetail(sw, portNumber ? parseInt(portNumber) : null);
+                    }, isEmbed ? 50 : 300);
+                } else {
+                    if (!isEmbed) showToast('Switch bulunamadı: ' + switchName, 'error');
+                }
+                
+                // Clean URL without reloading page
+                const cleanUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, cleanUrl);
             }
         }
 
@@ -10734,7 +10834,7 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
             setTimeout(handleURLParameters, 1000); // Wait for data to load
         });
         
-        // Listen for messages from iframe (e.g., port_alarms.php)
+        // Listen for messages from iframe (e.g., port_alarms.php, reports.php)
         window.addEventListener('message', function(event) {
             // Security check - you may want to add origin validation
             if (event.data && event.data.action === 'navigateToPort') {
@@ -10743,28 +10843,21 @@ ${alarm.is_silenced ? `Sesize Alındı: ${alarm.silence_until} saate kadar\n` : 
                 
                 console.log('Received navigateToPort message:', switchName, portNumber);
                 
-                // Navigate to switches page first
-                updatePageContent('switches');
-                
-                // Wait for switches page to load, then find and open the switch
-                setTimeout(() => {
-                    const switchToOpen = switches.find(s => s.name === switchName);
-                    if (switchToOpen) {
-                        console.log('Opening switch:', switchToOpen);
-                        showSwitchDetail(switchToOpen);
-                        
-                        // Highlight the specific port after a small delay
-                        setTimeout(() => {
-                            const portElement = document.querySelector(`#detail-ports-grid .port-item[data-port="${portNumber}"]`);
-                            if (portElement) {
-                                portElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                portElement.style.animation = 'pulse 2s ease-in-out 3';
-                            }
-                        }, 500);
-                    } else {
-                        showToast('Switch bulunamadı: ' + switchName, 'error');
+                const switchToOpen = switches.find(s => s.name === switchName);
+                if (switchToOpen) {
+                    // Show the detail panel as a floating overlay without
+                    // navigating away from the currently active page (e.g. reports)
+                    const detailPanel = document.getElementById('detail-panel');
+                    detailPanel.classList.add('from-reports');
+                    // Set full-page link so user can open in a new tab
+                    const fullPageLink = document.getElementById('detail-fullpage-link');
+                    if (fullPageLink) {
+                        fullPageLink.href = `index.php?switch_id=${switchToOpen.id}&highlight_port=${portNumber}`;
                     }
-                }, 1000);
+                    showSwitchDetail(switchToOpen, portNumber);
+                } else {
+                    showToast('Switch bulunamadı: ' + switchName, 'error');
+                }
             }
         });
     </script>

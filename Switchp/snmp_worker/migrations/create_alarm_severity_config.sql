@@ -60,3 +60,10 @@ IF @@ROWCOUNT = 0 INSERT INTO alarm_severity_config (alarm_type, severity, teleg
 
 UPDATE alarm_severity_config SET severity='HIGH', telegram_enabled=1, email_enabled=1, description='Yüksek işlemci kullanımı (>=%30)' WHERE alarm_type='high_cpu';
 IF @@ROWCOUNT = 0 INSERT INTO alarm_severity_config (alarm_type, severity, telegram_enabled, email_enabled, description) VALUES ('high_cpu', 'HIGH', 1, 1, 'Yüksek işlemci kullanımı (>=%30)');
+
+-- PHP notification types (no telegram, email-only)
+UPDATE alarm_severity_config SET severity='LOW', telegram_enabled=0, email_enabled=1, description='Excel export bildirimi' WHERE alarm_type='excel_export';
+IF @@ROWCOUNT = 0 INSERT INTO alarm_severity_config (alarm_type, severity, telegram_enabled, email_enabled, description) VALUES ('excel_export', 'LOW', 0, 1, 'Excel export bildirimi');
+
+UPDATE alarm_severity_config SET severity='LOW', telegram_enabled=0, email_enabled=1, description='MAC geçmiş silme bildirimi' WHERE alarm_type='mac_history_cleanup';
+IF @@ROWCOUNT = 0 INSERT INTO alarm_severity_config (alarm_type, severity, telegram_enabled, email_enabled, description) VALUES ('mac_history_cleanup', 'LOW', 0, 1, 'MAC geçmiş silme bildirimi');

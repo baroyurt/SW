@@ -41,9 +41,57 @@ function mhc_getSmtpConfig() {
     ];
 }
 
-function mhc_sendEmail(string $subject, string $htmlBody): bool {
+/**
+ * Get recipient email list for a given mail type from alarm_user_email_config,
+ * falling back to global SMTP to_addresses when no per-type rows exist.
+ */
+function mhc_getMailTypeRecipients(string $mailType): array {
+    global $conn;
+    try {
+        $conn->query(
+            "IF OBJECT_ID('dbo.alarm_user_email_config','U') IS NULL BEGIN " .
+            "CREATE TABLE alarm_user_email_config (" .
+            "alarm_type VARCHAR(100) NOT NULL, user_id INT NOT NULL, email_enabled BIT NOT NULL DEFAULT 1, " .
+            "CONSTRAINT PK_alarm_user_email_config PRIMARY KEY (alarm_type, user_id)" .
+            ") END"
+        );
+        $chk = $conn->prepare("SELECT COUNT(*) AS cnt FROM alarm_user_email_config WHERE alarm_type = ?");
+        $chk->bind_param('s', $mailType);
+        $chk->execute();
+        $row = $chk->get_result()->fetch_assoc();
+        $chk->close();
+        if ((int)($row['cnt'] ?? 0) === 0) {
+            $cfg = mhc_getSmtpConfig();
+            return $cfg ? $cfg['to_addresses'] : [];
+        }
+        $stmt = $conn->prepare(
+            "SELECT u.email FROM alarm_user_email_config auc " .
+            "JOIN users u ON u.id = auc.user_id " .
+            "WHERE auc.alarm_type = ? AND auc.email_enabled = 1 " .
+            "AND u.is_active = 1 AND u.email IS NOT NULL AND LEN(LTRIM(u.email)) > 0"
+        );
+        $stmt->bind_param('s', $mailType);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $emails = [];
+        while ($r = $result->fetch_assoc()) {
+            $emails[] = $r['email'];
+        }
+        $stmt->close();
+        return $emails;
+    } catch (\Throwable $e) {
+        $cfg = mhc_getSmtpConfig();
+        return $cfg ? $cfg['to_addresses'] : [];
+    }
+}
+
+function mhc_sendEmail(string $subject, string $htmlBody, array $recipients = null): bool {
     $cfg = mhc_getSmtpConfig();
     if (!$cfg) return false;
+    if ($recipients !== null) {
+        $cfg['to_addresses'] = $recipients;
+    }
+    if (empty($cfg['to_addresses'])) return false;
     $boundary = md5(uniqid());
     $plainBody = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $htmlBody));
     $message = "MIME-Version: 1.0\r\n"
@@ -231,7 +279,26 @@ if ($deleted > 0) {
               . "<tbody>{$rows}</tbody></table>";
 
     $htmlBody = chamada_email_template('MAC Değişim Geçmişi', $content, $deletedBy, $deletedByFullName, $clientIpMhc);
-    mhc_sendEmail($subject, $htmlBody);
+    $mhcRecipients = mhc_getMailTypeRecipients('mac_history_cleanup');
+    $mhcSent = mhc_sendEmail($subject, $htmlBody, $mhcRecipients ?: null);
+    // Log to email_log
+    try {
+        $tableChk = $conn->query("SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_name='email_log'");
+        if ($tableChk && ($chkRow = $tableChk->fetch_assoc()) && (int)$chkRow['cnt']) {
+            $mhcRecipsStr = implode(', ', $mhcRecipients);
+            $mhcStatus = $mhcSent ? 'sent' : 'failed';
+            $mhcSubjLog = $subject;
+            $mhcType = 'mac_history_cleanup';
+            $mhcStmt = $conn->prepare(
+                "INSERT INTO email_log (sent_at, subject, recipients, alarm_type, mail_type, status) VALUES (NOW(), ?, ?, NULL, ?, ?)"
+            );
+            if ($mhcStmt) {
+                $mhcStmt->bind_param('ssss', $mhcSubjLog, $mhcRecipsStr, $mhcType, $mhcStatus);
+                $mhcStmt->execute();
+                $mhcStmt->close();
+            }
+        }
+    } catch (\Throwable $e) { /* ignore */ }
 }
 
 echo json_encode([

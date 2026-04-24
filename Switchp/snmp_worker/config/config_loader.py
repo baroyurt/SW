@@ -163,6 +163,9 @@ class DeviceConfig:
     # kullanılır; bu portlara atanan MAC'ler DB'ye yazılmaz, deadlock riski azalır.
     # Boş liste (varsayılan) = tüm portların MAC'leri işlenir.
     mac_exclude_ports: list = field(default_factory=list)
+    # True yapılırsa bu cihazın portları için hiç port_down/port_up alarmı
+    # üretilmez.  SNMP polling ve MAC işleme devam eder.
+    disable_port_alarms: bool = False
 
 
 class Config:
@@ -385,6 +388,7 @@ class Config:
                 engine_id=device_data.get("snmp_engine_id") or device_data.get("engine_id"),  # Support both formats
                 monitored_ports=monitored_ports,
                 mac_exclude_ports=mac_exclude_ports,
+                disable_port_alarms=device_data.get("disable_port_alarms", False),
             )
             devices.append(device)
         

@@ -671,6 +671,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         case 'get_alarm_severities':
             // Get alarm severity configuration from database
             try {
+                // Ensure PHP notification types are seeded (they are not managed by Python worker)
+                $phpNotifTypes = [
+                    ['excel_export',       'LOW', 0, 1, 'Excel export bildirimi'],
+                    ['mac_history_cleanup','LOW', 0, 1, 'MAC geçmiş silme bildirimi'],
+                ];
+                foreach ($phpNotifTypes as [$nt, $sev, $tg, $em, $desc]) {
+                    $conn->query(
+                        "IF NOT EXISTS (SELECT 1 FROM alarm_severity_config WHERE alarm_type='$nt') " .
+                        "INSERT INTO alarm_severity_config (alarm_type, severity, telegram_enabled, email_enabled, description) " .
+                        "VALUES ('$nt', '$sev', $tg, $em, '$desc')"
+                    );
+                }
                 $stmt = $conn->prepare("SELECT alarm_type, severity, telegram_enabled, email_enabled, description FROM alarm_severity_config ORDER BY CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 WHEN 'LOW' THEN 4 ELSE 5 END, alarm_type");
                 $stmt->execute();
                 $result = $stmt->get_result();
@@ -731,7 +743,116 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 echo json_encode(['success' => false, 'error' => 'Hata: ' . $e->getMessage()]);
             }
             break;
-            
+
+        case 'get_alarm_user_email_config':
+            // Get per-user email settings for an alarm type
+            try {
+                $alarm_type = $_POST['alarm_type'] ?? '';
+                if (empty($alarm_type)) {
+                    echo json_encode(['success' => false, 'error' => 'Alarm tipi gerekli']);
+                    break;
+                }
+                // Ensure the config table exists before LEFT JOINing it
+                $conn->query(
+                    "IF OBJECT_ID('dbo.alarm_user_email_config','U') IS NULL BEGIN " .
+                    "CREATE TABLE alarm_user_email_config (" .
+                    "alarm_type VARCHAR(100) NOT NULL, user_id INT NOT NULL, email_enabled BIT NOT NULL DEFAULT 1, " .
+                    "CONSTRAINT PK_alarm_user_email_config PRIMARY KEY (alarm_type, user_id)" .
+                    ") END"
+                );
+                // Get all active users with their per-alarm email setting
+                $stmt = $conn->prepare(
+                    "SELECT u.id, u.username, u.full_name, u.email, " .
+                    "COALESCE(auc.email_enabled, 1) AS email_enabled " .
+                    "FROM users u " .
+                    "LEFT JOIN alarm_user_email_config auc ON auc.user_id = u.id AND auc.alarm_type = ? " .
+                    "WHERE u.is_active = 1 AND u.email IS NOT NULL AND LEN(LTRIM(u.email)) > 0 " .
+                    "ORDER BY u.id ASC"
+                );
+                $stmt->bind_param('s', $alarm_type);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $users = $result->fetch_all(MYSQLI_ASSOC);
+                foreach ($users as &$u) {
+                    $u['id'] = (int)$u['id'];
+                    $u['email_enabled'] = (int)$u['email_enabled'];
+                }
+                unset($u);
+                $stmt->close();
+                echo json_encode(['success' => true, 'users' => $users]);
+            } catch (\Throwable $e) {
+                echo json_encode(['success' => false, 'error' => 'Hata: ' . $e->getMessage()]);
+            }
+            break;
+
+        case 'save_alarm_user_email_config':
+            // Save per-user email settings for an alarm type
+            try {
+                $alarm_type = $_POST['alarm_type'] ?? '';
+                $user_ids = $_POST['user_ids'] ?? [];
+                $email_enabled_arr = $_POST['email_enabled'] ?? [];
+                if (empty($alarm_type)) {
+                    echo json_encode(['success' => false, 'error' => 'Alarm tipi gerekli']);
+                    break;
+                }
+                // Ensure table exists
+                $conn->query(
+                    "IF OBJECT_ID('dbo.alarm_user_email_config','U') IS NULL BEGIN " .
+                    "CREATE TABLE alarm_user_email_config (" .
+                    "alarm_type VARCHAR(100) NOT NULL, user_id INT NOT NULL, email_enabled BIT NOT NULL DEFAULT 1, " .
+                    "CONSTRAINT PK_alarm_user_email_config PRIMARY KEY (alarm_type, user_id)" .
+                    ") END"
+                );
+                foreach ($user_ids as $idx => $uid) {
+                    $uid = (int)$uid;
+                    $enabled = (int)(($email_enabled_arr[$idx] ?? '1') === '1' ? 1 : 0);
+                    if (!$uid) continue;
+                    $upd = $conn->prepare("UPDATE alarm_user_email_config SET email_enabled=? WHERE alarm_type=? AND user_id=?");
+                    $upd->bind_param('isi', $enabled, $alarm_type, $uid);
+                    $upd->execute();
+                    if ($conn->affected_rows == 0) {
+                        $ins = $conn->prepare("INSERT INTO alarm_user_email_config (alarm_type, user_id, email_enabled) VALUES (?, ?, ?)");
+                        $ins->bind_param('sii', $alarm_type, $uid, $enabled);
+                        $ins->execute();
+                        $ins->close();
+                    }
+                    $upd->close();
+                }
+                echo json_encode(['success' => true, 'message' => 'Alıcı ayarları kaydedildi']);
+            } catch (\Throwable $e) {
+                echo json_encode(['success' => false, 'error' => 'Hata: ' . $e->getMessage()]);
+            }
+            break;
+
+        case 'get_mail_log':
+            try {
+                $page = max(1, (int)($_POST['page'] ?? 1));
+                $perPage = 50;
+                $offset = ($page - 1) * $perPage;
+                // Check if table exists
+                $tableCheck = $conn->query("SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_name='email_log'");
+                $tableExists = $tableCheck && ($row = $tableCheck->fetch_assoc()) && (int)$row['cnt'] > 0;
+                if (!$tableExists) {
+                    echo json_encode(['success' => true, 'logs' => [], 'total' => 0, 'page' => 1]);
+                    break;
+                }
+                $countRes = $conn->query("SELECT COUNT(*) as cnt FROM email_log");
+                $total = ($countRes && ($cr = $countRes->fetch_assoc())) ? (int)$cr['cnt'] : 0;
+                $stmt = $conn->prepare(
+                    "SELECT id, sent_at, subject, recipients, alarm_type, mail_type, status, error_msg " .
+                    "FROM email_log ORDER BY sent_at DESC LIMIT ? OFFSET ?"
+                );
+                $stmt->bind_param('ii', $perPage, $offset);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $logs = $result->fetch_all(MYSQLI_ASSOC);
+                $stmt->close();
+                echo json_encode(['success' => true, 'logs' => $logs, 'total' => $total, 'page' => $page, 'per_page' => $perPage]);
+            } catch (\Throwable $e) {
+                echo json_encode(['success' => false, 'error' => 'Hata: ' . $e->getMessage()]);
+            }
+            break;
+
         case 'test_telegram':
             // Test Telegram notification (server-side)
             try {
@@ -1828,6 +1949,9 @@ if (!$config) {
                 <button class="tab-button" data-tab="alarm-severity">
                     <i class="fas fa-exclamation-triangle"></i> Alarm Seviyeleri
                 </button>
+                <button class="tab-button" data-tab="mail-log">
+                    <i class="fas fa-history"></i> Mail Geçmişi
+                </button>
             </div>
             
             <!-- Switches Tab -->
@@ -2058,6 +2182,9 @@ if (!$config) {
                                     <th style="padding: 12px; text-align: center; color: #e2e8f0;">
                                         <i class="fas fa-envelope" style="color: #d93025;"></i> Email
                                     </th>
+                                    <th style="padding: 12px; text-align: center; color: #e2e8f0;">
+                                        <i class="fas fa-users" style="color: #10b981;"></i> Alıcılar
+                                    </th>
                                     <th style="padding: 12px; text-align: center; color: #e2e8f0;">İşlemler</th>
                                 </tr>
                             </thead>
@@ -2071,6 +2198,38 @@ if (!$config) {
                         </table>
                     </div>
                 </div>
+            </div>
+
+            <!-- Mail Log Tab -->
+            <div class="tab-content" id="mail-log">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                    <h2><i class="fas fa-history" style="color:#10b981;margin-right:8px;"></i> Mail Geçmişi</h2>
+                    <button onclick="loadMailLog()" class="btn btn-secondary">
+                        <i class="fas fa-sync"></i> Yenile
+                    </button>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table style="width:100%;border-collapse:collapse;background:rgba(15,23,42,0.6);border-radius:8px;overflow:hidden;">
+                        <thead>
+                            <tr style="background:rgba(15,23,42,0.8);border-bottom:2px solid rgba(56,189,248,0.3);">
+                                <th style="padding:10px 14px;text-align:left;color:#e2e8f0;">Gönderim Zamanı</th>
+                                <th style="padding:10px 14px;text-align:left;color:#e2e8f0;">Konu</th>
+                                <th style="padding:10px 14px;text-align:left;color:#e2e8f0;">Alıcılar</th>
+                                <th style="padding:10px 14px;text-align:center;color:#e2e8f0;">Tip</th>
+                                <th style="padding:10px 14px;text-align:center;color:#e2e8f0;">Alarm Tipi</th>
+                                <th style="padding:10px 14px;text-align:center;color:#e2e8f0;">Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mailLogTable">
+                            <tr>
+                                <td colspan="6" style="text-align:center;padding:30px;color:#94a3b8;">
+                                    <i class="fas fa-spinner fa-spin"></i> Yükleniyor...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="mailLogPagination" style="display:flex;justify-content:flex-end;margin-top:12px;gap:8px;"></div>
             </div>
 
     <!-- Add/Edit Switch Modal -->
@@ -2134,6 +2293,33 @@ if (!$config) {
         <i class="fas fa-check-circle"></i>
         <span id="toastMessage"></span>
     </div>
+
+    <!-- Per-User Email Recipients Modal -->
+    <div class="modal" id="recipientsModal" style="display:none;">
+        <div class="modal-content" style="max-width:520px;">
+            <h2 style="display:flex;align-items:center;gap:10px;">
+                <i class="fas fa-users" style="color:#10b981;"></i>
+                <span id="recipientsModalTitle">Email Alıcıları</span>
+            </h2>
+            <p style="color:#94a3b8;font-size:13px;margin:4px 0 4px;">
+                Bu alarm tipi için hangi kullanıcıların e-posta alacağını ayarlayın.
+                Email kanalı kapalıysa bu ayarların bir önemi yoktur.
+            </p>
+            <p style="color:#64748b;font-size:12px;margin:0 0 16px;">
+                <i class="fas fa-info-circle" style="color:#3b82f6;margin-right:4px;"></i>
+                Listede kullanıcı görünmüyorsa <a href="../pages/admin.php" target="_blank" style="color:#3b82f6;">Kullanıcı Yönetimi</a> sayfasından kullanıcıya e-posta adresi ekleyin.
+            </p>
+            <div id="recipientsList" style="max-height:360px;overflow-y:auto;"></div>
+            <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end;">
+                <button onclick="saveRecipients()" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Kaydet
+                </button>
+                <button onclick="closeRecipientsModal()" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> İptal
+                </button>
+            </div>
+        </div>
+    </div>
     
     <script>
         // Strip internal-only keys that must not be embedded in the page HTML
@@ -2154,6 +2340,11 @@ if (!$config) {
                 
                 button.classList.add('active');
                 document.getElementById(button.dataset.tab).classList.add('active');
+
+                // Lazy-load mail log when tab is opened
+                if (button.dataset.tab === 'mail-log') loadMailLog(1);
+                // Lazy-load alarm severities when tab is opened
+                if (button.dataset.tab === 'alarm-severity') loadAlarmSeverities();
             });
         });
         
@@ -2811,7 +3002,13 @@ if (!$config) {
                 'vlan_changed': 'VLAN Değişti',
                 'description_changed': 'Açıklama Değişti',
                 'mac_added': 'MAC Eklendi',
-                'snmp_error': 'SNMP Hatası'
+                'snmp_error': 'SNMP Hatası',
+                'high_temperature': 'Yüksek Sıcaklık',
+                'fan_failure': 'Fan Arızası',
+                'high_cpu': 'Yüksek CPU',
+                // PHP notification types
+                'excel_export': 'Excel Export Bildirimi',
+                'mac_history_cleanup': 'MAC Geçmiş Silme',
             };
             return types[alarmType] || alarmType;
         }
@@ -2823,7 +3020,7 @@ if (!$config) {
             if (!severities || severities.length === 0) {
                 table.innerHTML = `
                     <tr>
-                        <td colspan="6" style="text-align: center; padding: 20px; color: #718096;">
+                        <td colspan="7" style="text-align: center; padding: 20px; color: #718096;">
                             Henüz alarm seviyesi tanımlanmamış
                         </td>
                     </tr>
@@ -2873,6 +3070,12 @@ if (!$config) {
                         </label>
                     </td>
                     <td style="padding: 12px; text-align: center;">
+                        <button onclick="openRecipientsModal('${item.alarm_type}')"
+                                class="btn btn-secondary" style="padding: 6px 10px; font-size: 11px; background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.4); color: #10b981;">
+                            <i class="fas fa-users"></i> Ayarla
+                        </button>
+                    </td>
+                    <td style="padding: 12px; text-align: center;">
                         <button onclick="updateAlarmSeverity('${item.alarm_type}')" 
                                 class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;">
                             <i class="fas fa-save"></i> Kaydet
@@ -2914,6 +3117,149 @@ if (!$config) {
                 showToast('Güncelleme hatası: ' + error.message, 'error');
             });
         }
+
+        // ── Per-user Email Recipients Modal ────────────────────────────
+        let _currentRecipientsAlarmType = null;
+
+        function openRecipientsModal(alarmType) {
+            _currentRecipientsAlarmType = alarmType;
+            document.getElementById('recipientsModalTitle').textContent =
+                'Email Alıcıları — ' + getAlarmTypeTurkish(alarmType);
+            document.getElementById('recipientsList').innerHTML =
+                '<p style="text-align:center;color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</p>';
+            document.getElementById('recipientsModal').style.display = 'flex';
+
+            fetch('admin_snmp_config.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: new URLSearchParams({action: 'get_alarm_user_email_config', alarm_type: alarmType})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) {
+                    document.getElementById('recipientsList').innerHTML =
+                        `<p style="color:#e53e3e;">${data.error}</p>`;
+                    return;
+                }
+                if (!data.users || data.users.length === 0) {
+                    document.getElementById('recipientsList').innerHTML =
+                        '<p style="color:#94a3b8;text-align:center;">E-posta adresi olan aktif kullanıcı bulunamadı.</p>';
+                    return;
+                }
+                document.getElementById('recipientsList').innerHTML = data.users.map(u => `
+                    <div style="display:flex;align-items:center;justify-content:space-between;
+                                padding:10px 14px;border-bottom:1px solid #1e2d4d;">
+                        <div>
+                            <span style="font-weight:600;color:#e2e8f0;">${u.full_name || u.username}</span>
+                            <span style="font-size:12px;color:#94a3b8;margin-left:8px;">${u.email}</span>
+                        </div>
+                        <label class="checkbox-switch">
+                            <input type="checkbox" data-user-id="${u.id}" class="recipient-toggle"
+                                   ${u.email_enabled ? 'checked' : ''}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                `).join('');
+            })
+            .catch(e => {
+                document.getElementById('recipientsList').innerHTML =
+                    `<p style="color:#e53e3e;">Yükleme hatası: ${e.message}</p>`;
+            });
+        }
+
+        function closeRecipientsModal() {
+            document.getElementById('recipientsModal').style.display = 'none';
+            _currentRecipientsAlarmType = null;
+        }
+
+        function saveRecipients() {
+            if (!_currentRecipientsAlarmType) return;
+            const checkboxes = document.querySelectorAll('#recipientsList .recipient-toggle');
+            const params = new URLSearchParams({
+                action: 'save_alarm_user_email_config',
+                alarm_type: _currentRecipientsAlarmType
+            });
+            checkboxes.forEach(cb => {
+                params.append('user_ids[]', cb.dataset.userId);
+                params.append('email_enabled[]', cb.checked ? '1' : '0');
+            });
+            fetch('admin_snmp_config.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: params
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    closeRecipientsModal();
+                } else {
+                    showToast(data.error, 'error');
+                }
+            })
+            .catch(e => showToast('Kayıt hatası: ' + e.message, 'error'));
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('recipientsModal').addEventListener('click', function(e) {
+            if (e.target === this) closeRecipientsModal();
+        });
+
+        // ── Mail Log ────────────────────────────────────────────────────
+        let _mailLogPage = 1;
+
+        function loadMailLog(page) {
+            page = page || 1;
+            _mailLogPage = page;
+            const table = document.getElementById('mailLogTable');
+            table.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Yükleniyor...</td></tr>';
+            fetch('admin_snmp_config.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: new URLSearchParams({action: 'get_mail_log', page: page})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) {
+                    table.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#e53e3e;">${data.error}</td></tr>`;
+                    return;
+                }
+                if (!data.logs || data.logs.length === 0) {
+                    table.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:#94a3b8;">Henüz gönderilmiş mail kaydı yok.</td></tr>';
+                    document.getElementById('mailLogPagination').innerHTML = '';
+                    return;
+                }
+                const statusColor = {sent: '#10b981', failed: '#e53e3e'};
+                table.innerHTML = data.logs.map(l => `
+                    <tr style="border-bottom:1px solid rgba(56,189,248,0.1);">
+                        <td style="padding:10px 14px;color:#94a3b8;font-size:13px;white-space:nowrap;">${l.sent_at || '-'}</td>
+                        <td style="padding:10px 14px;color:#e2e8f0;font-size:13px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(l.subject||'').replace(/"/g,'&quot;')}">${l.subject || '-'}</td>
+                        <td style="padding:10px 14px;color:#a0aec0;font-size:12px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(l.recipients||'').replace(/"/g,'&quot;')}">${l.recipients || '-'}</td>
+                        <td style="padding:10px 14px;text-align:center;font-size:12px;">
+                            <span style="padding:2px 8px;border-radius:4px;background:rgba(16,185,129,0.15);color:#10b981;">${l.mail_type || '-'}</span>
+                        </td>
+                        <td style="padding:10px 14px;text-align:center;font-size:12px;color:#94a3b8;">${l.alarm_type || '-'}</td>
+                        <td style="padding:10px 14px;text-align:center;">
+                            <span style="padding:3px 10px;border-radius:4px;background:${(statusColor[l.status]||'#6b7280')}22;color:${statusColor[l.status]||'#6b7280'};font-size:12px;font-weight:600;">${l.status}</span>
+                            ${l.error_msg ? `<div style="font-size:11px;color:#e53e3e;margin-top:2px;">${l.error_msg}</div>` : ''}
+                        </td>
+                    </tr>
+                `).join('');
+                // Pagination
+                const totalPages = Math.ceil((data.total || 0) / (data.per_page || 50));
+                let pagHtml = '';
+                if (totalPages > 1) {
+                    if (page > 1) pagHtml += `<button onclick="loadMailLog(${page-1})" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;">‹ Önceki</button>`;
+                    pagHtml += `<span style="color:#94a3b8;font-size:13px;padding:5px 8px;">${page} / ${totalPages}</span>`;
+                    if (page < totalPages) pagHtml += `<button onclick="loadMailLog(${page+1})" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;">Sonraki ›</button>`;
+                }
+                document.getElementById('mailLogPagination').innerHTML = pagHtml;
+            })
+            .catch(e => {
+                table.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#e53e3e;">Yükleme hatası: ${e.message}</td></tr>`;
+            });
+        }
+
         // ── Uplink Ports ───────────────────────────────────────────────
         function loadSnmpDevicesList() {
             fetch('admin_snmp_config.php', {

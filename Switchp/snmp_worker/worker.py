@@ -251,6 +251,16 @@ def import_with_diagnostics():
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+    # WeeklyReportService is optional – worker starts even if it fails
+    try:
+        print("  [opt] Importing services.weekly_report_service...", end=" ", flush=True)
+        from services.weekly_report_service import WeeklyReportService
+        modules_to_import.append(("WeeklyReportService", WeeklyReportService))
+        print("OK")
+    except Exception as e:
+        print(f"SKIPPED ({e})")
+        modules_to_import.append(("WeeklyReportService", None))
     
     print("\n  All modules imported successfully!\n")
     
@@ -271,6 +281,7 @@ EmailNotificationService = imported["EmailNotificationService"]
 AutoSyncService = imported["AutoSyncService"]
 setup_logging = imported["setup_logging"]
 stop_listener = imported["stop_listener"]
+WeeklyReportService = imported.get("WeeklyReportService")
 
 
 class SNMPWorker:
@@ -404,6 +415,74 @@ class SNMPWorker:
             # Non-fatal: fall back to hardcoded defaults in alarm_manager.py
             self.logger.warning(f"Could not seed alarm_severity_config: {exc}")
 
+    def _ensure_alarm_user_email_config(self):
+        """
+        Create the alarm_user_email_config table if it does not exist.
+        This table stores per-user per-alarm-type email notification preferences
+        and is managed via the PHP admin UI (Alarm Seviyeleri → Email Alıcıları).
+        Creating it here ensures the Python worker can query it even before the
+        admin UI has been used for the first time.
+        """
+        from sqlalchemy import text as _text
+
+        DDL = """
+        IF OBJECT_ID('dbo.alarm_user_email_config', 'U') IS NULL BEGIN
+            CREATE TABLE alarm_user_email_config (
+                alarm_type    VARCHAR(100) NOT NULL,
+                user_id       INT          NOT NULL,
+                email_enabled BIT          NOT NULL DEFAULT 1,
+                CONSTRAINT PK_alarm_user_email_config PRIMARY KEY (alarm_type, user_id)
+            )
+        END
+        """
+
+        try:
+            engine = self.db_manager.engine
+            with engine.begin() as conn:
+                conn.execute(_text(DDL))
+            self.logger.info("alarm_user_email_config: table ready")
+        except Exception as exc:
+            self.logger.warning(f"Could not create alarm_user_email_config: {exc}")
+
+    def _ensure_maintenance_windows_table(self):
+        """
+        Create the maintenance_windows table if it does not exist.
+        The Python alarm_manager queries this table to suppress alarms during
+        scheduled maintenance periods (suppress_alarms = 1).
+        """
+        from sqlalchemy import text as _text
+
+        DDL = """
+        IF OBJECT_ID('dbo.maintenance_windows', 'U') IS NULL BEGIN
+            CREATE TABLE maintenance_windows (
+                id              INT IDENTITY(1,1) PRIMARY KEY,
+                device_id       INT          DEFAULT NULL,
+                device_name     VARCHAR(100) DEFAULT NULL,
+                title           VARCHAR(255) NOT NULL,
+                start_time      DATETIME     NOT NULL,
+                end_time        DATETIME     NOT NULL,
+                recurring       BIT          DEFAULT 0,
+                recur_days      VARCHAR(20)  DEFAULT NULL,
+                recur_start     TIME         DEFAULT NULL,
+                recur_end       TIME         DEFAULT NULL,
+                suppress_alarms BIT          DEFAULT 1,
+                created_by      VARCHAR(100) DEFAULT NULL,
+                created_at      DATETIME     DEFAULT GETDATE(),
+                updated_at      DATETIME     DEFAULT GETDATE()
+            );
+            CREATE INDEX idx_mw_device ON maintenance_windows(device_id);
+            CREATE INDEX idx_mw_times  ON maintenance_windows(start_time, end_time);
+        END
+        """
+
+        try:
+            engine = self.db_manager.engine
+            with engine.begin() as conn:
+                conn.execute(_text(DDL))
+            self.logger.info("maintenance_windows: table ready")
+        except Exception as exc:
+            self.logger.warning(f"Could not create maintenance_windows: {exc}")
+
     def _initialize_components(self):
         """Initialize all worker components."""
         try:
@@ -421,6 +500,8 @@ class SNMPWorker:
             # migration file), so we create and seed it here on every startup.
             # The INSERT statements are no-ops when the row already exists.
             self._ensure_alarm_severity_config()
+            self._ensure_alarm_user_email_config()
+            self._ensure_maintenance_windows_table()
             
             # Notification services
             telegram_service = None
@@ -466,6 +547,17 @@ class SNMPWorker:
             # Auto sync service
             self.logger.info("Initializing auto sync service...")
             self.autosync_service = AutoSyncService(self.db_manager)
+
+            # Weekly report service
+            self.weekly_report_service = None
+            if WeeklyReportService is not None and email_service and email_service.enabled:
+                self.logger.info("Initializing weekly report service…")
+                self.weekly_report_service = WeeklyReportService(
+                    db_manager=self.db_manager,
+                    email_service=email_service,
+                    weekday=getattr(getattr(self.config, 'reports', None), 'weekly_weekday', 0),
+                    hour=getattr(getattr(self.config, 'reports', None), 'weekly_hour', 8),
+                )
             
             self.logger.info("All components initialized successfully")
             
@@ -554,6 +646,14 @@ class SNMPWorker:
                     # Cleanup old notification timestamps periodically
                     if cycle_count % 10 == 0:
                         self.alarm_manager.cleanup_old_notifications()
+
+                    # Weekly report check (runs on every cycle; service handles
+                    # the weekday/hour schedule internally)
+                    if self.weekly_report_service is not None:
+                        try:
+                            self.weekly_report_service.check_and_send()
+                        except Exception as e:
+                            self.logger.error(f"Weekly report check hatası: {e}", exc_info=True)
 
                     # Cleanup old polling data and deduplicate port_status_data
                     # every ~25 minutes (50 cycles × 30s).  Removes legacy rows
