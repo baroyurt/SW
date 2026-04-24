@@ -32,6 +32,9 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('maintenance_windows') AND name = 'created_by')
         ALTER TABLE maintenance_windows ADD created_by VARCHAR(100) DEFAULT NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('maintenance_windows') AND name = 'device_id')
+        ALTER TABLE maintenance_windows ADD device_id INT DEFAULT NULL;
 END
 GO
 
