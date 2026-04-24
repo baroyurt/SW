@@ -309,7 +309,7 @@ CHAMADA Network Monitoring System
         severity_upper = severity.upper() if severity else "HIGH"
         now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
 
-        subject = "CHAMADA Network Alert – MAC Hareketi"
+        subject = f"CHAMADA Network Alert – {old_device_name} MAC Hareketi"
 
         # Plain-text body
         body = f"""

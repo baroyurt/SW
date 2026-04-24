@@ -76,6 +76,11 @@ class AlarmManager:
             for dev in config.devices
             if dev.monitored_ports
         }
+
+        # Set of device names for which port alarms are completely suppressed.
+        self._port_alarms_disabled: Set[str] = {
+            dev.name for dev in config.devices if dev.disable_port_alarms
+        }
         
         self.logger.info("Alarm manager initialized")
     
@@ -541,6 +546,12 @@ class AlarmManager:
         # Exception: ports explicitly registered in snmp_uplink_ports are never
         # suppressed by VLAN exclusion — they are specifically designated for
         # up/down monitoring regardless of which VLAN their trunk carries.
+
+        # Suppress all port alarms for devices that have disable_port_alarms: true.
+        if device.name in self._port_alarms_disabled:
+            self._port_states[(device.id, port_number)] = oper_status
+            return
+
         vlan_exclude = self.config.alarms.vlan_exclude
         if vlan_exclude and vlan_id is not None and vlan_id in vlan_exclude:
             # Refresh the uplink-ports cache before checking.

@@ -317,6 +317,8 @@ switches:
     description: "SW39 - BEACH Location"
     # Port 50 = SW38 ile bakır uplink; tüm switch MAC'lerini duyar → deadlock kaynağı
     mac_exclude_ports: [50]
+    # BEACH switch'leri sık port değişikliği yaşıyor; alarm gürültüsü kapatıldı.
+    disable_port_alarms: true
     snmp_version: "3"
     snmp_v3:
       username: "snmpuser"
@@ -334,6 +336,8 @@ switches:
     description: "SW38 - BEACH Location"
     # Port 1 = SW39 ile bakır uplink; tüm switch MAC'lerini duyar → deadlock kaynağı
     mac_exclude_ports: [1]
+    # BEACH switch'leri sık port değişikliği yaşıyor; alarm gürültüsü kapatıldı.
+    disable_port_alarms: true
     snmp_version: "3"
     snmp_v3:
       username: "snmpuser"
