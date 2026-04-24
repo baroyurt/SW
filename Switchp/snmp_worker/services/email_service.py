@@ -187,7 +187,7 @@ class EmailNotificationService:
         
         now = datetime.now().strftime('%d.%m.%Y %H:%M:%S')
         
-        subject = f"CHAMADA Network Alert"
+        subject = f"CHAMADA Network Alert – {device_name}"
         
         # Plain text body
         body = f"""
