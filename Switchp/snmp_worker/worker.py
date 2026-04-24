@@ -444,6 +444,45 @@ class SNMPWorker:
         except Exception as exc:
             self.logger.warning(f"Could not create alarm_user_email_config: {exc}")
 
+    def _ensure_maintenance_windows_table(self):
+        """
+        Create the maintenance_windows table if it does not exist.
+        The Python alarm_manager queries this table to suppress alarms during
+        scheduled maintenance periods (suppress_alarms = 1).
+        """
+        from sqlalchemy import text as _text
+
+        DDL = """
+        IF OBJECT_ID('dbo.maintenance_windows', 'U') IS NULL BEGIN
+            CREATE TABLE maintenance_windows (
+                id              INT IDENTITY(1,1) PRIMARY KEY,
+                device_id       INT          DEFAULT NULL,
+                device_name     VARCHAR(100) DEFAULT NULL,
+                title           VARCHAR(255) NOT NULL,
+                start_time      DATETIME     NOT NULL,
+                end_time        DATETIME     NOT NULL,
+                recurring       BIT          DEFAULT 0,
+                recur_days      VARCHAR(20)  DEFAULT NULL,
+                recur_start     TIME         DEFAULT NULL,
+                recur_end       TIME         DEFAULT NULL,
+                suppress_alarms BIT          DEFAULT 1,
+                created_by      VARCHAR(100) DEFAULT NULL,
+                created_at      DATETIME     DEFAULT GETDATE(),
+                updated_at      DATETIME     DEFAULT GETDATE()
+            );
+            CREATE INDEX idx_mw_device ON maintenance_windows(device_id);
+            CREATE INDEX idx_mw_times  ON maintenance_windows(start_time, end_time);
+        END
+        """
+
+        try:
+            engine = self.db_manager.engine
+            with engine.begin() as conn:
+                conn.execute(_text(DDL))
+            self.logger.info("maintenance_windows: table ready")
+        except Exception as exc:
+            self.logger.warning(f"Could not create maintenance_windows: {exc}")
+
     def _initialize_components(self):
         """Initialize all worker components."""
         try:
@@ -462,6 +501,7 @@ class SNMPWorker:
             # The INSERT statements are no-ops when the row already exists.
             self._ensure_alarm_severity_config()
             self._ensure_alarm_user_email_config()
+            self._ensure_maintenance_windows_table()
             
             # Notification services
             telegram_service = None

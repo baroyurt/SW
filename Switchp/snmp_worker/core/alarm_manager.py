@@ -135,6 +135,65 @@ class AlarmManager:
             alarm_type in self.config.email.notify_on
         )
 
+    def _is_device_in_maintenance(self, session: Session, device: SNMPDevice) -> bool:
+        """
+        Return True if the device currently has an active maintenance window with
+        suppress_alarms = 1.  Recurring windows (recur_days + recur_start/recur_end)
+        are also evaluated against the current local time.
+        Falls back to False on any DB error so alarms are never silently dropped.
+        """
+        try:
+            now = datetime.now()
+            # 1. Check one-shot windows
+            row = session.execute(
+                text(
+                    "SELECT TOP 1 id FROM maintenance_windows "
+                    "WHERE suppress_alarms = 1 "
+                    "AND (device_id = :did OR device_name = :dname OR (device_id IS NULL AND device_name IS NULL)) "
+                    "AND start_time <= :now AND end_time >= :now "
+                    "AND (recurring = 0 OR recurring IS NULL)"
+                ),
+                {"did": device.id, "dname": device.name, "now": now}
+            ).fetchone()
+            if row:
+                return True
+
+            # 2. Check recurring windows – match on day-of-week and time range.
+            # recur_days is stored as comma-separated weekday numbers (0=Mon … 6=Sun)
+            # using Python's weekday() convention.  recur_start / recur_end are TIME.
+            weekday = str(now.weekday())  # '0'..'6'
+            current_time = now.time()
+            recurring_rows = session.execute(
+                text(
+                    "SELECT recur_days, recur_start, recur_end FROM maintenance_windows "
+                    "WHERE suppress_alarms = 1 AND recurring = 1 "
+                    "AND (device_id = :did OR device_name = :dname OR (device_id IS NULL AND device_name IS NULL))"
+                ),
+                {"did": device.id, "dname": device.name}
+            ).fetchall()
+            for r in recurring_rows:
+                recur_days, recur_start, recur_end = r[0], r[1], r[2]
+                if recur_days and weekday not in [d.strip() for d in str(recur_days).split(',')]:
+                    continue
+                if recur_start and recur_end:
+                    # recur_start / recur_end may come back as datetime.time or timedelta
+                    def _to_time(val):
+                        import datetime as _dt
+                        if isinstance(val, _dt.time):
+                            return val
+                        if isinstance(val, _dt.timedelta):
+                            total = int(val.total_seconds())
+                            return _dt.time(total // 3600, (total % 3600) // 60, total % 60)
+                        return None
+                    t_start = _to_time(recur_start)
+                    t_end = _to_time(recur_end)
+                    if t_start and t_end and not (t_start <= current_time <= t_end):
+                        continue
+                return True
+        except Exception as exc:
+            self.logger.debug(f"maintenance_windows check failed (non-fatal): {exc}")
+        return False
+
     def _get_alarm_email_recipients(self, session: Session, alarm_type: str) -> Optional[list]:
         """
         Return a filtered list of email addresses for this alarm type based on
@@ -323,6 +382,11 @@ class AlarmManager:
         alarm_key = f"{device.id}_{alarm_type}"
         
         if not is_reachable:
+            # Skip alarms during active maintenance windows with suppress_alarms=1
+            if self._is_device_in_maintenance(session, device):
+                self.logger.debug(f"Device {device.name}: maintenance window active, alarm suppressed")
+                return
+
             # Only raise the alarm after the device has failed at least
             # `unreachable_threshold` consecutive polls.  This prevents
             # instant false-positive alarms for newly-added switches that
@@ -496,7 +560,13 @@ class AlarmManager:
             # No state change
             return
         
-        # State changed
+        # State changed — check for active maintenance window before creating alarms
+        if self._is_device_in_maintenance(session, device):
+            self.logger.debug(
+                f"Device {device.name} port {port_number}: maintenance window active, alarm suppressed"
+            )
+            return
+
         # Refresh core-port cache and check whether this port is a core uplink.
         self._load_core_ports(session)
         core_switch_name = self._core_ports.get((device.id, port_number))
