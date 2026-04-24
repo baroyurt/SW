@@ -1252,7 +1252,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                 SELECT mac_address, ip_address, device_name
                 FROM mac_device_registry
                 WHERE mac_address IS NOT NULL
-                  AND ip_address IS NOT NULL
                   AND device_name IS NOT NULL
                   AND (source IS NULL OR source != 'snmp_hub_auto')
             ");
@@ -1260,9 +1259,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             if ($regResult) {
                 while ($device = $regResult->fetch_assoc()) {
                     $mac          = $device['mac_address'];
-                    $ip           = $device['ip_address'];
+                    $ip           = $device['ip_address'] ?? '';
                     $hostname     = $device['device_name'];
-                    if (empty($ip) || !validateIP($ip)) { continue; }
+                    // Skip only when ip is non-empty AND invalid (e.g. VLAN label string).
+                    // Devices imported without an IP are still applied (device name written,
+                    // existing port IP preserved via COALESCE in the UPDATE statement).
+                    if (!empty($ip) && !validateIP($ip)) { continue; }
                     $macNormalized = strtolower(str_replace(':', '', $mac));
 
                     $checkStmt = $conn->prepare("
@@ -1315,7 +1317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     if ($trackingPortId !== null) {
                         $updStmt = $conn->prepare("
                             UPDATE ports
-                            SET ip = ?, device = ?,
+                            SET ip = COALESCE(NULLIF(?, ''), ip), device = ?,
                                 mac = CASE WHEN (mac IS NULL OR mac = '') THEN ? ELSE CONCAT(mac, ',', ?) END
                             WHERE id = ?
                               AND CHARINDEX(?, LOWER(REPLACE(COALESCE(mac,''), ':', ''))) = 0
@@ -1332,7 +1334,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                         } else { $apply_already_current[] = $mac; }
                     } else {
                         $updateStmt = $conn->prepare("
-                            UPDATE ports WITH (ROWLOCK) SET ip = ?, device = ?
+                            UPDATE ports WITH (ROWLOCK)
+                            SET ip = COALESCE(NULLIF(?, ''), ip), device = ?
                             WHERE CHARINDEX(?, LOWER(REPLACE(mac, ':', ''))) > 0
                             AND mac IS NOT NULL AND mac != ''
                         ");
@@ -1697,11 +1700,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             // as placeholders, not real IP addresses or hostnames. Writing them to the
             // ports table would corrupt the port display with VLAN-name strings.
             // Only excel/manual entries (real user-supplied data) should be applied.
+            // ip_address is NOT required: devices imported with MAC + device_name only
+            // are still applied (existing port IP is preserved via COALESCE in the UPDATE).
             $result = $conn->query("
                 SELECT mac_address, ip_address, device_name 
                 FROM mac_device_registry 
                 WHERE mac_address IS NOT NULL 
-                AND ip_address IS NOT NULL 
                 AND device_name IS NOT NULL
                 AND (source IS NULL OR source != 'snmp_hub_auto')
             ");
@@ -1734,15 +1738,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
             // For each device, find and update matching ports
             while ($device = $result->fetch_assoc()) {
                 $mac = $device['mac_address'];
-                $ip = $device['ip_address'];
+                $ip = $device['ip_address'] ?? '';
                 $hostname = $device['device_name'];
 
-                // Skip entries where ip_address is not a valid IP address.
+                // Skip entries where ip_address is present but not a valid IP address.
                 // VLAN labels (e.g. "50", "JACKPOT") may appear as placeholders
                 // in registry entries whose source was previously 'snmp_hub_auto'
                 // or that were imported with non-IP values.  Writing such strings
                 // to ports.ip corrupts the hub-port display in the UI.
-                if (empty($ip) || !validateIP($ip)) {
+                // Empty/NULL ip_address is allowed: only the device name is written and
+                // the existing port IP is preserved via COALESCE in the UPDATE statement.
+                if (!empty($ip) && !validateIP($ip)) {
                     continue;
                 }
 
@@ -1820,9 +1826,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     // ports.mac).  Update the port's device label and IP by ID,
                     // and append the MAC to ports.mac so future FIND_IN_SET
                     // checks work without requiring another tracking lookup.
+                    // COALESCE(NULLIF(ip, ''), existing_ip) preserves the current
+                    // port IP when no IP was supplied in the registry entry.
                     $updStmt = $conn->prepare("
                         UPDATE ports
-                        SET ip     = ?,
+                        SET ip     = COALESCE(NULLIF(?, ''), ip),
                             device = ?,
                             mac    = CASE
                                          WHEN (mac IS NULL OR mac = '') THEN ?
@@ -1856,9 +1864,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_FILES['excel_file'])) {
                     // it stores panel connection JSON (written by saveportwithpanel.php /
                     // paneltoswitchconnection.php) and must not be overwritten with a
                     // plain hostname string from the MAC registry.
+                    // COALESCE(NULLIF(ip, ''), existing_ip) preserves the current
+                    // port IP when no IP was supplied in the registry entry.
                     $updateStmt = $conn->prepare("
                         UPDATE ports WITH (ROWLOCK)
-                        SET ip = ?, 
+                        SET ip = COALESCE(NULLIF(?, ''), ip), 
                             device = ?
                         WHERE CHARINDEX(?, LOWER(REPLACE(mac, ':', ''))) > 0
                         AND mac IS NOT NULL 
